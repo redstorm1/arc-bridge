@@ -1,0 +1,5 @@
+name: "arc"
+version: "0.1.0"
+required_version: "2024.6.0"
+# External component for ARC (Automate/Dooya) RS485 protocol
+# Provides discovery + cover entities with position & tilt
