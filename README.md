@@ -21,9 +21,9 @@ external_components:
 
 uart:
   id: rs485_bus
-  tx_pin: GPIO17
-  rx_pin: GPIO16
-  baud_rate: 9600
+  tx_pin: GPIO15
+  rx_pin: GPIO13
+  baud_rate: 115200
   parity: NONE
   stop_bits: 1
 
