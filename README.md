@@ -2,14 +2,14 @@
 
 **Status:** alpha (discovery + basic cover control/feedback)
 
-This component speaks the ARC ASCII protocol over RS485 from an ESP32 UART.
+This component speaks the ARC ASCII protocol over an ESP32 UART.
 It supports:
 - Bus sniffing & discovery (periodic broadcast `!000V?;`)
 - Cover entities with position + tilt
 - Commands: open/close/stop/move to %/tilt to °
 - API services to start/stop discovery and query all
 
-> ARC protocol reference: Rollease Acmeda "ARC Serial Protocol via RS485".
+> ARC protocol reference: Rollease Acmeda "ARC Serial Protocol via ESP32".
 
 ## Install (as external component)
 
