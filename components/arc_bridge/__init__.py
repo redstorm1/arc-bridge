@@ -66,6 +66,7 @@ async def to_code(config):
                 "unit_of_measurement": "%",
                 "accuracy_decimals": 0,
                 "disabled_by_default": False,
+                "force_update": False,
             },
         )
         cg.add(var.map_lq_sensor(bid, lq))
