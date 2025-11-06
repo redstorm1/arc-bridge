@@ -37,17 +37,21 @@ async def to_code(config):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        blind_var = cg.new_Pvariable(cg.generate_id(f"arc_blind_{bid}"), ARCBlind)
-        await cg.register_component(blind_var, blind_cfg)
-        await cover.register_cover(blind_var, blind_cfg)
+        # create a proper ID object for this blind
+        blind_id = cg.new_ID(f"arc_blind_{bid}", ARCBlind)
+        blind = cg.new_Pvariable(blind_id)
+        await cg.register_component(blind, blind_cfg)
+        await cover.register_cover(blind, blind_cfg)
 
-        cg.add(blind_var.set_blind_id(bid))
-        cg.add(blind_var.set_name(name))
-        cg.add(var.add_blind(blind_var))
+        cg.add(blind.set_blind_id(bid))
+        cg.add(blind.set_name(name))
+        cg.add(var.add_blind(blind))
 
         # RF quality sensor
         lq = cg.new_Pvariable(sensor.Sensor)
-        await sensor.register_sensor(lq, {"name": f"{name} RF Quality", "unit_of_measurement": "%"})
+        await sensor.register_sensor(
+            lq, {"name": f"{name} RF Quality", "unit_of_measurement": "%"}
+        )
         cg.add(var.map_lq_sensor(bid, lq))
 
         # Status text sensor
