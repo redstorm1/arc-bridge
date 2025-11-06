@@ -14,14 +14,12 @@ CONF_BLIND_ID = "blind_id"
 CONF_LQ_ID = "lq_id"
 CONF_STATUS_ID = "status_id"
 
-# Each blind has its own Cover (ARCBlind) plus two children (RF quality sensor + status text sensor)
 BLIND_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ARCBlind),
             cv.Required(CONF_BLIND_ID): cv.string,
             cv.Required(CONF_NAME): cv.string,
-            # Auto-generate IDs for the child entities if the user doesn't provide them
             cv.GenerateID(CONF_LQ_ID): cv.declare_id(sensor.Sensor),
             cv.GenerateID(CONF_STATUS_ID): cv.declare_id(text_sensor.TextSensor),
         }
@@ -41,28 +39,28 @@ CONFIG_SCHEMA = (
 )
 
 async def to_code(config):
-    # Bridge component
+    # Main bridge
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    # Create each blind + children
     for blind_cfg in config.get(CONF_BLINDS, []):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # Cover (inherits Component already)
+        # Cover (ARCBlind)
         blind = cg.new_Pvariable(blind_cfg[CONF_ID])
         await cover.register_cover(blind, blind_cfg)
         cg.add(blind.set_blind_id(bid))
         cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
 
-        # RF Quality sensor
+        # --- RF Quality sensor ---
         lq = cg.new_Pvariable(blind_cfg[CONF_LQ_ID])
         await sensor.register_sensor(
             lq,
             {
+                "id": blind_cfg[CONF_LQ_ID],
                 "name": f"{name} RF Quality",
                 "unit_of_measurement": "%",
                 "accuracy_decimals": 0,
@@ -70,11 +68,12 @@ async def to_code(config):
         )
         cg.add(var.map_lq_sensor(bid, lq))
 
-        # Status text sensor
+        # --- Status text sensor ---
         status = cg.new_Pvariable(blind_cfg[CONF_STATUS_ID])
         await text_sensor.register_text_sensor(
             status,
             {
+                "id": blind_cfg[CONF_STATUS_ID],
                 "name": f"{name} Status",
             },
         )
