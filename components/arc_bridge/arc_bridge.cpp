@@ -2,6 +2,10 @@
 #include <cctype>
 
 namespace esphome {
+namespace sensor { class Sensor; }
+namespace text_sensor { class TextSensor; }
+namespace cover { class Cover; }
+
 namespace arc_bridge {
 
 // ================= ARCBlind ==================
