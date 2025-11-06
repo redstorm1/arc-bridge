@@ -28,6 +28,7 @@ CONFIG_SCHEMA = (
     .extend(cv.COMPONENT_SCHEMA)
 )
 
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -37,9 +38,8 @@ async def to_code(config):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # create a proper ID object for this blind
-        blind_id = cg.new_ID(f"arc_blind_{bid}", ARCBlind)
-        blind = cg.new_Pvariable(blind_id)
+        # create ARCBlind instance — let ESPHome assign the internal ID
+        blind = cg.new_Pvariable(ARCBlind)
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
@@ -58,7 +58,3 @@ async def to_code(config):
         status = cg.new_Pvariable(text_sensor.TextSensor)
         await text_sensor.register_text_sensor(status, {"name": f"{name} Status"})
         cg.add(var.map_status_sensor(bid, status))
-
-# ✅ Tell ESPHome which key this file implements
-CONFIG = CONFIG_SCHEMA
-TO_CODE = to_code
