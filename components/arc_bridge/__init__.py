@@ -15,17 +15,13 @@ CONF_LQ_ID = "lq_id"
 CONF_STATUS_ID = "status_id"
 
 # Define each blind entry (cover + its sensors)
-BLIND_SCHEMA = (
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(ARCBlind),
-            cv.Required(CONF_BLIND_ID): cv.string,
-            cv.Required(CONF_NAME): cv.string,
-            cv.GenerateID(CONF_LQ_ID): cv.declare_id(sensor.Sensor),
-            cv.GenerateID(CONF_STATUS_ID): cv.declare_id(text_sensor.TextSensor),
-        }
-    )
-    .extend(cover.COVER_SCHEMA)
+BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
+    {
+        cv.Required(CONF_BLIND_ID): cv.string,
+        cv.Required(CONF_NAME): cv.string,
+        cv.GenerateID(CONF_LQ_ID): cv.declare_id(sensor.Sensor),
+        cv.GenerateID(CONF_STATUS_ID): cv.declare_id(text_sensor.TextSensor),
+    }
 )
 
 CONFIG_SCHEMA = (
