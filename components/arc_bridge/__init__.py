@@ -14,6 +14,7 @@ CONF_BLIND_ID = "blind_id"
 CONF_LQ_ID = "lq_id"
 CONF_STATUS_ID = "status_id"
 
+# Define each blind entry (cover + its sensors)
 BLIND_SCHEMA = (
     cv.Schema(
         {
@@ -39,7 +40,7 @@ CONFIG_SCHEMA = (
 )
 
 async def to_code(config):
-    # Main bridge
+    # Create the main ARC bridge
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
@@ -48,7 +49,7 @@ async def to_code(config):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # Cover (ARCBlind)
+        # Create the ARCBlind (cover)
         blind = cg.new_Pvariable(blind_cfg[CONF_ID])
         await cover.register_cover(blind, blind_cfg)
         cg.add(blind.set_blind_id(bid))
@@ -64,6 +65,7 @@ async def to_code(config):
                 "name": f"{name} RF Quality",
                 "unit_of_measurement": "%",
                 "accuracy_decimals": 0,
+                "disabled_by_default": False,
             },
         )
         cg.add(var.map_lq_sensor(bid, lq))
@@ -75,6 +77,7 @@ async def to_code(config):
             {
                 "id": blind_cfg[CONF_STATUS_ID],
                 "name": f"{name} Status",
+                "disabled_by_default": False,
             },
         )
         cg.add(var.map_status_sensor(bid, status))
