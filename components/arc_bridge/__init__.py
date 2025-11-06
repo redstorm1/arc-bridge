@@ -34,18 +34,19 @@ CONFIG_SCHEMA = (
     .extend(cv.COMPONENT_SCHEMA)
 )
 
+
 async def to_code(config):
-    # Create bridge
+    # Create main ARC bridge component
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    # Process each blind
+    # Iterate over each configured blind
     for blind_cfg in config.get(CONF_BLINDS, []):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # Create ARCBlind (Cover already includes Component)
+        # Create ARCBlind (Cover already inherits Component)
         blind = cg.new_Pvariable(blind_cfg[CONF_ID])
         await cover.register_cover(blind, blind_cfg)
 
@@ -53,14 +54,18 @@ async def to_code(config):
         cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
 
-        # RF Quality Sensor (auto handles ID and registration)
+        # RF Quality Sensor
         lq = await sensor.new_sensor(
-            name=f"{name} RF Quality",
-            unit_of_measurement="%",
-            accuracy_decimals=0,
+            {
+                "name": f"{name} RF Quality",
+                "unit_of_measurement": "%",
+                "accuracy_decimals": 0,
+            }
         )
         cg.add(var.map_lq_sensor(bid, lq))
 
         # Status Text Sensor
-        status = await text_sensor.new_text_sensor(name=f"{name} Status")
+        status = await text_sensor.new_text_sensor(
+            {"name": f"{name} Status"}
+        )
         cg.add(var.map_status_sensor(bid, status))
