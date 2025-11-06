@@ -12,34 +12,39 @@ ARCBlind = arc_ns.class_("ARCBlind", cover.Cover, cg.Component)
 CONF_BLINDS = "blinds"
 CONF_BLIND_ID = "blind_id"
 
+# Per-blind schema: each blind gets its own generated ID (this is the key fix)
+BLIND_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(ARCBlind),
+        cv.Required(CONF_BLIND_ID): cv.string,
+        cv.Required(CONF_NAME): cv.string,
+    }
+)
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ARCBridgeComponent),
-            cv.Optional(CONF_BLINDS, default=[]): cv.ensure_list(
-                {
-                    cv.Required(CONF_BLIND_ID): cv.string,
-                    cv.Required(CONF_NAME): cv.string,
-                }
-            ),
+            cv.Optional(CONF_BLINDS, default=[]): cv.ensure_list(BLIND_SCHEMA),
         }
     )
     .extend(uart.UART_DEVICE_SCHEMA)
     .extend(cv.COMPONENT_SCHEMA)
 )
 
-
 async def to_code(config):
+    # Bridge
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
+    # Blinds
     for blind_cfg in config.get(CONF_BLINDS, []):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # create ARCBlind instance — let ESPHome assign the internal ID
-        blind = cg.new_Pvariable(ARCBlind)
+        # Build the ARCBlind using its declared ID (no MockObjClass, no strings)
+        blind = cg.new_Pvariable(blind_cfg[CONF_ID])
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
