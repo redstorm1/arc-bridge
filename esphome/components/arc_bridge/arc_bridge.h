@@ -6,6 +6,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -20,15 +21,23 @@ class ARCBlind;
 // --------------------------------------------------------------------
 class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
-  void add_blind(ARCBlind *blind) { blinds_.push_back(blind); }
+  void add_blind(ARCBlind *blind);
   void map_lq_sensor(const std::string &id, sensor::Sensor *s) { lq_map_[id] = s; }
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s) { status_map_[id] = s; }
+
+  void send_move_command(const std::string &blind_id, uint8_t percent);
+  void send_open_command(const std::string &blind_id);
+  void send_close_command(const std::string &blind_id);
+  void send_stop_command(const std::string &blind_id);
 
   void setup() override {}
   void loop() override {}
   float get_setup_priority() const override { return setup_priority::DATA; }
 
  private:
+  void send_simple_command_(const std::string &blind_id, char command,
+                            const std::string &payload = std::string());
+
   std::vector<ARCBlind *> blinds_;
   std::map<std::string, sensor::Sensor *> lq_map_;
   std::map<std::string, text_sensor::TextSensor *> status_map_;
@@ -41,6 +50,7 @@ class ARCBlind : public cover::Cover, public Component {
  public:
   void set_blind_id(const std::string &id) { blind_id_ = id; }
   void set_name(const std::string &name) { name_ = name; }
+  void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
 
  protected:
     cover::CoverTraits get_traits() override {
@@ -50,11 +60,10 @@ class ARCBlind : public cover::Cover, public Component {
       return traits;
     }
 
-  void control(const cover::CoverCall &call) override {
-    // TODO: send ARC protocol command here later
-  }
+  void control(const cover::CoverCall &call) override;
 
  private:
+  ARCBridgeComponent *parent_{nullptr};
   std::string blind_id_;
   std::string name_;
 };
