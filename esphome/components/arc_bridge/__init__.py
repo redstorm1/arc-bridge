@@ -39,8 +39,8 @@ async def to_code(config):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # ✅ Proper creation with internal ID
-        blind = cg.new_Pvariable(cg.make_id(f"arc_blind_{bid}"), ARCBlind)
+        # ✅ Use cg.new_id() for anonymous internal variable
+        blind = cg.new_Pvariable(cg.new_id(), ARCBlind)
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
