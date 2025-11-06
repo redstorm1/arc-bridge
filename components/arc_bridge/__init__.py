@@ -1,8 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart, cover
-import esphome.components.sensor as sensor
-import esphome.components.text_sensor as text_sensor
 from esphome.const import CONF_ID, CONF_NAME
 
 DEPENDENCIES = ["uart"]
