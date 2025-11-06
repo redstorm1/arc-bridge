@@ -20,17 +20,32 @@ This external component allows direct integration of **Dooya ARC / Pulse 2** RF 
 ## Example YAML
 
 ```yaml
+
+cover: []
+sensor: []
+text_sensor: []
+
+
 external_components:
   - source: github://redstorm1/arc-bridge
     components: [arc_bridge]
+    refresh: 1s   # optional while iterating to force refetch
 
+# ──────────────────────────────────────────────
+# UART (STM32 link)
+# ──────────────────────────────────────────────
 uart:
-  id: rf_a
-  tx_pin: GPIO15
-  rx_pin: GPIO13
-  baud_rate: 115200
+  - id: rf_a
+    rx_pin: GPIO13    # STM32 RX ← ESP TX
+    tx_pin: GPIO15    # STM32 TX → ESP RX
+    baud_rate: 115200
+    data_bits: 8
+    parity: NONE
+    stop_bits: 1
+    rx_buffer_size: 4096
 
 arc_bridge:
+  id: arc1
   uart_id: rf_a
   blinds:
     - blind_id: USZ
