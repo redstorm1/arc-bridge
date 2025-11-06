@@ -19,8 +19,10 @@ BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
     {
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Required(CONF_NAME): cv.string,
-        cv.GenerateID(): cv.declare_id(cg.Component),
-        cv.GenerateID(CONF_STATUS_ID): cv.declare_id(text_sensor.TextSensor),
+        # base component id for this blind
+        cv.GenerateID(): cv.declare_id(ARCBlind),
+        # create an ID for the status text sensor without importing text_sensor
+        cv.Optional("status_id"): cv.declare_id(cg.Component),
     }
 )
 
