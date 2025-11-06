@@ -1,3 +1,6 @@
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/cover/cover.h"
 #include "arc_bridge.h"
 #include <cctype>
 
