@@ -5,22 +5,13 @@ from esphome.const import CONF_ID, CONF_NAME
 
 DEPENDENCIES = ["uart"]
 
-# ──────────────────────────────────────────────
-# Namespace and Classes
-# ──────────────────────────────────────────────
 arc_ns = cg.esphome_ns.namespace("arc_bridge")
 ARCBridgeComponent = arc_ns.class_("ARCBridgeComponent", cg.Component, uart.UARTDevice)
 ARCBlind = arc_ns.class_("ARCBlind", cover.Cover, cg.Component)
 
-# ──────────────────────────────────────────────
-# Config keys
-# ──────────────────────────────────────────────
 CONF_BLINDS = "blinds"
 CONF_BLIND_ID = "blind_id"
 
-# ──────────────────────────────────────────────
-# Schema for each blind
-# ──────────────────────────────────────────────
 BLIND_SCHEMA = (
     cv.Schema(
         {
@@ -29,13 +20,9 @@ BLIND_SCHEMA = (
             cv.Required(CONF_NAME): cv.string,
         }
     )
-    # inherit standard Cover entity schema (adds device_class, icon, disabled_by_default, etc.)
     .extend(cover.COVER_SCHEMA)
 )
 
-# ──────────────────────────────────────────────
-# Main component schema
-# ──────────────────────────────────────────────
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -47,26 +34,21 @@ CONFIG_SCHEMA = (
     .extend(cv.COMPONENT_SCHEMA)
 )
 
-# ──────────────────────────────────────────────
-# Code generation
-# ──────────────────────────────────────────────
 async def to_code(config):
-    # Create the main ARC bridge component
+    # Create bridge
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    # Iterate through all configured blinds
+    # Process each blind
     for blind_cfg in config.get(CONF_BLINDS, []):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # Create ARCBlind instance (proper typed ID)
+        # Create ARCBlind (Cover already includes Component)
         blind = cg.new_Pvariable(blind_cfg[CONF_ID])
-        await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
-        # Wire blind properties and registration
         cg.add(blind.set_blind_id(bid))
         cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
