@@ -30,6 +30,12 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_close_command(const std::string &blind_id);
   void send_stop_command(const std::string &blind_id);
 
+  // Send a position query frame: "!IDr?;"
+  void send_position_query(const std::string &blind_id);
+
+  // Process an incoming raw frame (including parsing Enp, Enl, R, RA and r position)
+  void handle_incoming_frame(const std::string &frame);
+
   void setup() override {}
   void loop() override {}
   float get_setup_priority() const override { return setup_priority::DATA; }
@@ -37,6 +43,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
  private:
   void send_simple_command_(const std::string &blind_id, char command,
                             const std::string &payload = std::string());
+
+  // helper to find registered blind by id
+  ARCBlind *find_blind_by_id(const std::string &id);
 
   std::vector<ARCBlind *> blinds_;
   std::map<std::string, sensor::Sensor *> lq_map_;
