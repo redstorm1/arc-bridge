@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <regex>
+#include <cstdlib>
 
 #include "esphome/core/log.h"
 
@@ -62,42 +63,47 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   std::string rest = (i < body.size()) ? body.substr(i) : "";
 
   // simple regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
-  try {
-    std::smatch m;
-    std::regex re_enp(R"((?:Enp)\s*=\s*([0-9]+))", std::regex::icase);
-    std::regex re_enl(R"((?:Enl)\s*=\s*([0-9]+))", std::regex::icase);
-    std::regex re_r(R"((?:\bR)\s*=\s*([0-9]+))", std::regex::icase);
-    std::regex re_ra(R"((?:RA)\s*=\s*([0-9]+))", std::regex::icase);
-    std::regex re_pos(R"((?:\br)\s*[:=]\s*([0-9]+))", std::regex::icase);
+  std::smatch m;
+  std::regex re_enp(R"((?:Enp)\s*=\s*([0-9]+))", std::regex::icase);
+  std::regex re_enl(R"((?:Enl)\s*=\s*([0-9]+))", std::regex::icase);
+  std::regex re_r(R"((?:\bR)\s*=\s*([0-9]+))", std::regex::icase);
+  std::regex re_ra(R"((?:RA)\s*=\s*([0-9]+))", std::regex::icase);
+  std::regex re_pos(R"((?:\br)\s*[:=]\s*([0-9]+))", std::regex::icase);
 
-    int enp = -1, enl = -1, r = -1, ra = -1, pos = -1;
+  int enp = -1, enl = -1, r = -1, ra = -1, pos = -1;
 
-    if (std::regex_search(rest, m, re_enp) && m.size() > 1)
-      enp = std::stoi(m[1].str());
-    if (std::regex_search(rest, m, re_enl) && m.size() > 1)
-      enl = std::stoi(m[1].str());
-    if (std::regex_search(rest, m, re_r) && m.size() > 1)
-      r = std::stoi(m[1].str());
-    if (std::regex_search(rest, m, re_ra) && m.size() > 1)
-      ra = std::stoi(m[1].str());
-    if (std::regex_search(rest, m, re_pos) && m.size() > 1)
-      pos = std::stoi(m[1].str());
-
-    ESP_LOGD(TAG, "RX <- id=%s rest=\"%s\"", blind_id.c_str(), rest.c_str());
-    if (enp >= 0) ESP_LOGD(TAG, "  Enp=%d", enp);
-    if (enl >= 0) ESP_LOGD(TAG, "  Enl=%d", enl);
-    if (r >= 0) ESP_LOGD(TAG, "  R=%d", r);
-    if (ra >= 0) ESP_LOGD(TAG, "  RA=%d", ra);
-    if (pos >= 0) ESP_LOGD(TAG, "  r(pos)=%d", pos);
-
-    // TODO: translate/scale pos and update the corresponding ARCBlind instance (if needed).
-    // Example (pseudocode):
-    // ARCBlind *b = this->find_blind_by_id(blind_id);
-    // if (b && pos >= 0) b->publish_position(convert_arc_to_ha(pos));
-
-  } catch (const std::exception &e) {
-    ESP_LOGW(TAG, "Failed to parse frame '%s': %s", frame.c_str(), e.what());
+  if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
+    const char *s = m[1].str().c_str();
+    enp = static_cast<int>(std::strtol(s, nullptr, 10));
   }
+  if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
+    const char *s = m[1].str().c_str();
+    enl = static_cast<int>(std::strtol(s, nullptr, 10));
+  }
+  if (std::regex_search(rest, m, re_r) && m.size() > 1) {
+    const char *s = m[1].str().c_str();
+    r = static_cast<int>(std::strtol(s, nullptr, 10));
+  }
+  if (std::regex_search(rest, m, re_ra) && m.size() > 1) {
+    const char *s = m[1].str().c_str();
+    ra = static_cast<int>(std::strtol(s, nullptr, 10));
+  }
+  if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
+    const char *s = m[1].str().c_str();
+    pos = static_cast<int>(std::strtol(s, nullptr, 10));
+  }
+
+  ESP_LOGD(TAG, "RX <- id=%s rest=\"%s\"", blind_id.c_str(), rest.c_str());
+  if (enp >= 0) ESP_LOGD(TAG, "  Enp=%d", enp);
+  if (enl >= 0) ESP_LOGD(TAG, "  Enl=%d", enl);
+  if (r >= 0) ESP_LOGD(TAG, "  R=%d", r);
+  if (ra >= 0) ESP_LOGD(TAG, "  RA=%d", ra);
+  if (pos >= 0) ESP_LOGD(TAG, "  r(pos)=%d", pos);
+
+  // Optional: locate the ARCBlind and update sensors/state.
+  // ARCBlind *b = this->find_blind_by_id(blind_id);
+  // if (b && pos >= 0) { ... convert and publish position ... }
+
 }
 
 void ARCBridgeComponent::send_open_command(const std::string &blind_id) {
