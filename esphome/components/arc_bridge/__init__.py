@@ -44,9 +44,9 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-    # Register each blind defined in YAML
-    for blind_cfg in config.get(CONF_BLINDS, []):
-        blind = cg.new_Pvariable(cg.new_id(), ARCBlind)
+    for blind_cfg in config[CONF_BLINDS]:
+        # Create each ARCBlind object
+        blind = cg.new_Pvariable(None, ARCBlind)
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
