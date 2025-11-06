@@ -19,7 +19,7 @@ BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
     {
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Required(CONF_NAME): cv.string,
-        cv.GenerateID(CONF_LQ_ID): cv.declare_id(sensor.Sensor),
+        cv.GenerateID(): cv.declare_id(cg.Component),
         cv.GenerateID(CONF_STATUS_ID): cv.declare_id(text_sensor.TextSensor),
     }
 )
@@ -53,28 +53,9 @@ async def to_code(config):
         cg.add(var.add_blind(blind))
 
         # --- RF Quality sensor ---
-        lq = cg.new_Pvariable(blind_cfg[CONF_LQ_ID])
-        await sensor.register_sensor(
-            lq,
-            {
-                "id": blind_cfg[CONF_LQ_ID],
-                "name": f"{name} RF Quality",
-                "unit_of_measurement": "%",
-                "accuracy_decimals": 0,
-                "disabled_by_default": False,
-                "force_update": False,
-            },
-        )
+        lq = cg.new_Pvariable(cg.new_id(f"{bid}_lq_sensor"))
         cg.add(var.map_lq_sensor(bid, lq))
 
         # --- Status text sensor ---
-        status = cg.new_Pvariable(blind_cfg[CONF_STATUS_ID])
-        await text_sensor.register_text_sensor(
-            status,
-            {
-                "id": blind_cfg[CONF_STATUS_ID],
-                "name": f"{name} Status",
-                "disabled_by_default": False,
-            },
-        )
+        status = cg.new_Pvariable(cg.new_id(f"{bid}_status_sensor"))
         cg.add(var.map_status_sensor(bid, status))
