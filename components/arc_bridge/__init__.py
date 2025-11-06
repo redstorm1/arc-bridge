@@ -1,3 +1,33 @@
+import esphome.codegen as cg
+import esphome.config_validation as cv
+from esphome.components import uart, cover, sensor, text_sensor
+from esphome.const import CONF_ID, CONF_NAME
+
+DEPENDENCIES = ["uart"]
+
+arc_ns = cg.esphome_ns.namespace("arc_bridge")
+ARCBridgeComponent = arc_ns.class_("ARCBridgeComponent", cg.Component, uart.UARTDevice)
+ARCBlind = arc_ns.class_("ARCBlind", cover.Cover, cg.Component)
+
+CONF_BLINDS = "blinds"
+CONF_BLIND_ID = "blind_id"
+
+CONFIG_SCHEMA = (
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(ARCBridgeComponent),
+            cv.Optional(CONF_BLINDS, default=[]): cv.ensure_list(
+                {
+                    cv.Required(CONF_BLIND_ID): cv.string,
+                    cv.Required(CONF_NAME): cv.string,
+                }
+            ),
+        }
+    )
+    .extend(uart.UART_DEVICE_SCHEMA)
+    .extend(cv.COMPONENT_SCHEMA)
+)
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -25,3 +55,7 @@ async def to_code(config):
         status = cg.new_Pvariable(text_sensor.TextSensor)
         await text_sensor.register_text_sensor(status, {"name": f"{name} Status"})
         cg.add(var.map_status_sensor(bid, status))
+
+# Tell ESPHome this module handles the YAML key 'arc_bridge'
+CONFIG_SCHEMA = CONFIG_SCHEMA
+to_code = to_code
