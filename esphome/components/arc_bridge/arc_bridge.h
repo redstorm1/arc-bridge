@@ -44,8 +44,8 @@ class ARCBlind : public cover::Cover, public Component {
 
  protected:
   cover::CoverTraits get_traits() override {
-    cover::CoverTraits traits;
-    traits.set_is_optimistic(false);
+    cover::CoverTraits traits{};
+    traits.set_assumed_state(false);
     traits.set_supports_position(true);
     return traits;
   }
