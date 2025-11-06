@@ -43,12 +43,12 @@ class ARCBlind : public cover::Cover, public Component {
   void set_name(const std::string &name) { name_ = name; }
 
  protected:
-  cover::CoverTraits get_traits() override {
-    cover::CoverTraits traits{};
-    traits.set_assumed_state(false);
-    traits.set_supports_position(true);
-    return traits;
-  }
+    cover::CoverTraits get_traits() override {
+      cover::CoverTraits traits{};
+      traits.set_is_assumed_state(false);
+      traits.set_supports_position(true);
+      return traits;
+    }
 
   void control(const cover::CoverCall &call) override {
     // TODO: send ARC protocol command here later
