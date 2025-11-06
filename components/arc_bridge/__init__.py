@@ -38,7 +38,6 @@ async def to_code(config):
         name = blind_cfg[CONF_NAME]
 
         # Correct instance creation using declared ID
-        #blind_id = cg.declare_id(ARCBlind)(f"arc_blind_{bid}")
 	blind_id = cv.declare_id(ARCBlind)(f"arc_blind_{bid}")
         blind = cg.new_Pvariable(blind_id)
         await cg.register_component(blind, blind_cfg)
