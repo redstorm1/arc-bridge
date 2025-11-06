@@ -1,38 +1,49 @@
 #pragma once
+
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
+#include "esphome/components/cover/cover.h"
+#include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/sensor/sensor.h"
+
 #include <map>
 #include <string>
 
 namespace esphome {
-
-// Forward declarations only — do not include full headers
-namespace sensor { class Sensor; }
-namespace text_sensor { class TextSensor; }
-namespace cover { class Cover; }
-
 namespace arc_bridge {
 
 class ARCBlind;
 
-// Main UART bridge
 class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
-  void add_blind(ARCBlind *blind);
-  void map_lq_sensor(const std::string &id, esphome::sensor::Sensor *sensor);
-  void map_status_sensor(const std::string &id, esphome::text_sensor::TextSensor *sensor);
+  void add_blind(ARCBlind *blind) { blinds_.push_back(blind); }
+  void map_lq_sensor(const std::string &id, sensor::Sensor *s) { lq_map_[id] = s; }
+  void map_status_sensor(const std::string &id, text_sensor::TextSensor *s) { status_map_[id] = s; }
 
- protected:
-  std::map<std::string, ARCBlind *> blinds_;
-  std::map<std::string, esphome::sensor::Sensor *> lq_sensors_;
-  std::map<std::string, esphome::text_sensor::TextSensor *> status_sensors_;
+  void setup() override {}
+  void loop() override {}
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ private:
+  std::vector<ARCBlind*> blinds_;
+  std::map<std::string, sensor::Sensor*> lq_map_;
+  std::map<std::string, text_sensor::TextSensor*> status_map_;
 };
 
-// Blind (cover) entity
-class ARCBlind : public esphome::Component {
+class ARCBlind : public cover::Cover, public Component {
  public:
   void set_blind_id(const std::string &id) { blind_id_ = id; }
   void set_name(const std::string &name) { name_ = name; }
+
+ protected:
+  // You’ll fill these when you wire actions later
+  cover::CoverTraits get_traits() override {
+    cover::CoverTraits t;
+    t.set_is_optimistic(false);
+    t.set_supports_position(true);
+    return t;
+  }
+  void control(const cover::CoverCall &call) override {}
 
  private:
   std::string blind_id_;
