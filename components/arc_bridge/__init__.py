@@ -54,18 +54,20 @@ async def to_code(config):
         cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
 
-        # RF Quality Sensor
-        lq = await sensor.new_sensor(
-            {
-                "name": f"{name} RF Quality",
-                "unit_of_measurement": "%",
-                "accuracy_decimals": 0,
-            }
-        )
+        # --- RF Quality Sensor ---
+        lq_config = {
+            CONF_ID: cg.new_id(f"{bid}_lq_sensor"),
+            "name": f"{name} RF Quality",
+            "unit_of_measurement": "%",
+            "accuracy_decimals": 0,
+        }
+        lq = await sensor.new_sensor(lq_config)
         cg.add(var.map_lq_sensor(bid, lq))
 
-        # Status Text Sensor
-        status = await text_sensor.new_text_sensor(
-            {"name": f"{name} Status"}
-        )
+        # --- Status Text Sensor ---
+        status_config = {
+            CONF_ID: cg.new_id(f"{bid}_status_sensor"),
+            "name": f"{name} Status",
+        }
+        status = await text_sensor.new_text_sensor(status_config)
         cg.add(var.map_status_sensor(bid, status))
