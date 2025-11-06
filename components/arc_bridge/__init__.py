@@ -33,18 +33,18 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
-	for blind_cfg in config.get(CONF_BLINDS, []):
-	    bid = blind_cfg[CONF_BLIND_ID]
-	    name = blind_cfg[CONF_NAME]
+    for blind_cfg in config.get(CONF_BLINDS, []):
+        bid = blind_cfg[CONF_BLIND_ID]
+        name = blind_cfg[CONF_NAME]
 
-	    # Create ARCBlind instance
-	    blind = cg.new_Pvariable(f"arc_blind_{bid}", ARCBlind)
-	    await cg.register_component(blind, blind_cfg)
-	    await cover.register_cover(blind, blind_cfg)
+        # Create ARCBlind instance
+        blind = cg.new_Pvariable(f"arc_blind_{bid}", ARCBlind)
+        await cg.register_component(blind, blind_cfg)
+        await cover.register_cover(blind, blind_cfg)
 
-	    cg.add(blind.set_blind_id(bid))
-	    cg.add(blind.set_name(name))
-	    cg.add(var.add_blind(blind))
+        cg.add(blind.set_blind_id(bid))
+        cg.add(blind.set_name(name))
+        cg.add(var.add_blind(blind))
 
         # RF quality sensor
         lq = cg.new_Pvariable(sensor.Sensor)
