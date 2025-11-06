@@ -8,6 +8,8 @@ MULTI_CONF = True
 
 CONF_BLINDS = "blinds"
 CONF_BLIND_ID = "blind_id"
+CONF_LINK_QUALITY = "link_quality"
+CONF_STATUS = "status"
 
 arc_bridge_ns = cg.esphome_ns.namespace("arc_bridge")
 ARCBridgeComponent = arc_bridge_ns.class_("ARCBridgeComponent", cg.Component, uart.UARTDevice)
@@ -17,7 +19,13 @@ BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
     {
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Required(CONF_NAME): cv.string,
-        cv.GenerateID(): cv.declare_id(ARCBlind),   # 👈 declare per-blind ID here
+        cv.GenerateID(): cv.declare_id(ARCBlind),
+        cv.Optional(CONF_LINK_QUALITY): sensor.sensor_schema(
+            unit_of_measurement="%",
+            icon="mdi:signal",
+            accuracy_decimals=0,
+        ),
+        cv.Optional(CONF_STATUS): text_sensor.text_sensor_schema(),
     }
 )
 
@@ -43,6 +51,14 @@ async def to_code(config):
         cg.add(blind.set_blind_id(blind_cfg[CONF_BLIND_ID]))
         cg.add(blind.set_name(blind_cfg[CONF_NAME]))
         cg.add(var.add_blind(blind))
+
+        if CONF_LINK_QUALITY in blind_cfg:
+            lq_sensor = await sensor.new_sensor(blind_cfg[CONF_LINK_QUALITY])
+            cg.add(var.map_lq_sensor(blind_cfg[CONF_BLIND_ID], lq_sensor))
+
+        if CONF_STATUS in blind_cfg:
+            status_sensor = await text_sensor.new_text_sensor(blind_cfg[CONF_STATUS])
+            cg.add(var.map_status_sensor(blind_cfg[CONF_BLIND_ID], status_sensor))
 
 CONFIG_SCHEMA = CONFIG_SCHEMA
 to_code = to_code

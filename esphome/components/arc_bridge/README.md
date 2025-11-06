@@ -50,6 +50,10 @@ arc_bridge:
   blinds:
     - blind_id: USZ
       name: Office Blind
+      link_quality:
+        name: Office Blind Link Quality
+      status:
+        name: Office Blind Status
     - blind_id: ZXE
       name: Guest Blind
     - blind_id: OVJ
