@@ -36,7 +36,7 @@ async def to_code(config):
     await uart.register_uart_device(var, config)
 
     for blind_cfg in config[CONF_BLINDS]:
-        blind = cg.new_Pvariable(None, ARCBlind)
+        blind = cg.new_Pvariable(ARCBlind)
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
