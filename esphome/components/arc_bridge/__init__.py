@@ -36,12 +36,16 @@ async def to_code(config):
     await uart.register_uart_device(var, config)
 
     for blind_cfg in config[CONF_BLINDS]:
-        blind = cg.new_Pvariable(ARCBlind)
+        bid = blind_cfg[CONF_BLIND_ID]
+        name = blind_cfg[CONF_NAME]
+
+        # ✅ Proper creation with internal ID
+        blind = cg.new_Pvariable(cg.make_id(f"arc_blind_{bid}"), ARCBlind)
         await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
 
-        cg.add(blind.set_blind_id(blind_cfg[CONF_BLIND_ID]))
-        cg.add(blind.set_name(blind_cfg[CONF_NAME]))
+        cg.add(blind.set_blind_id(bid))
+        cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
 
 CONFIG_SCHEMA = CONFIG_SCHEMA
