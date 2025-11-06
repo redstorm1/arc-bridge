@@ -1,9 +1,9 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import cover, uart
+from esphome.components import cover, uart, sensor
 from esphome.const import CONF_ID, CONF_NAME
 
-DEPENDENCIES = ["uart", "cover"]
+DEPENDENCIES = ["uart", "cover", "sensor"]
 MULTI_CONF = True
 
 CONF_BLINDS = "blinds"
