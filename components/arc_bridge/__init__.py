@@ -11,21 +11,19 @@ ARCBlind = arc_ns.class_("ARCBlind", cover.Cover, cg.Component)
 
 CONF_BLINDS = "blinds"
 CONF_BLIND_ID = "blind_id"
-CONF_LQ_ID = "lq_id"
 CONF_STATUS_ID = "status_id"
 
-# Define each blind entry (cover + its sensors)
+# --- Each blind entry schema ---
 BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
     {
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Required(CONF_NAME): cv.string,
-        # base component id for this blind
         cv.GenerateID(): cv.declare_id(ARCBlind),
-        # create an ID for the status text sensor without importing text_sensor
-        cv.Optional("status_id"): cv.declare_id(cg.Component),
+        cv.Optional(CONF_STATUS_ID): cv.declare_id(cg.Component),
     }
 )
 
+# --- Root component schema ---
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -37,8 +35,9 @@ CONFIG_SCHEMA = (
     .extend(cv.COMPONENT_SCHEMA)
 )
 
+
+# --- to_code() codegen routine ---
 async def to_code(config):
-    # Create the main ARC bridge
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
@@ -47,17 +46,16 @@ async def to_code(config):
         bid = blind_cfg[CONF_BLIND_ID]
         name = blind_cfg[CONF_NAME]
 
-        # Create the ARCBlind (cover)
+        # create the blind cover instance
         blind = cg.new_Pvariable(blind_cfg[CONF_ID])
+        await cg.register_component(blind, blind_cfg)
         await cover.register_cover(blind, blind_cfg)
+
         cg.add(blind.set_blind_id(bid))
         cg.add(blind.set_name(name))
         cg.add(var.add_blind(blind))
 
-        # --- RF Quality sensor ---
-        lq = cg.new_Pvariable(cg.new_id(f"{bid}_lq_sensor"))
-        cg.add(var.map_lq_sensor(bid, lq))
-
-        # --- Status text sensor ---
-        status = cg.new_Pvariable(cg.new_id(f"{bid}_status_sensor"))
-        cg.add(var.map_status_sensor(bid, status))
+        # link quality (LQ) & status handled via map_*
+        # (no cg.new_id calls, just pass strings)
+        cg.add(var.map_lq_sensor(bid, None))
+        cg.add(var.map_status_sensor(bid, None))
