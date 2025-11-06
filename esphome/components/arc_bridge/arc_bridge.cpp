@@ -28,11 +28,11 @@ void ARCBridgeComponent::send_move_command(const std::string &blind_id, uint8_t 
 }
 
 void ARCBridgeComponent::send_open_command(const std::string &blind_id) {
-  this->send_move_command(blind_id, 0);
+  this->send_move_command(blind_id, 'o');
 }
 
 void ARCBridgeComponent::send_close_command(const std::string &blind_id) {
-  this->send_move_command(blind_id, 100);
+  this->send_move_command(blind_id, 'c');
 }
 
 void ARCBridgeComponent::send_stop_command(const std::string &blind_id) {
