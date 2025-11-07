@@ -15,8 +15,8 @@ static const char *const TAG = "arc_bridge";
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {
   if (blind == nullptr)
     return;
-  ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s' name='%s')",
-           blind->get_blind_id().c_str(), blind->get_name());
+  ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s')",
+           blind->get_blind_id().c_str());
   blind->set_parent(this);
   this->blinds_.push_back(blind);
 }
@@ -191,6 +191,10 @@ void ARCBlind::setup() {
   // to avoid acting on HA restore/optimistic commands on startup.
 }
 
+void ARCBlind::set_name(const std::string &name) {
+  (void)name;
+}
+
 void ARCBlind::publish_position(float position) {
   // store last and publish state to the cover (position 0..1)
   this->last_published_position_ = position;
@@ -199,7 +203,7 @@ void ARCBlind::publish_position(float position) {
   // clear the startup guard when we receive the first real position
   if (this->ignore_control_) {
     this->ignore_control_ = false;
-    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->get_name());
+    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->blind_id_.c_str());
   }
 }
 
@@ -211,7 +215,7 @@ void ARCBlind::control(const cover::CoverCall &call) {
 
   // ignore early control calls during init to avoid unwanted startup moves
   if (this->ignore_control_) {
-    ESP_LOGD(TAG, "Ignoring control for %s during init", this->get_name());
+    ESP_LOGD(TAG, "Ignoring control for %s during init", this->blind_id_.c_str());
     return;
   }
 

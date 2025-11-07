@@ -49,7 +49,8 @@ class ARCBlind : public cover::Cover, public Component {
  public:
   void set_blind_id(const std::string &id) { blind_id_ = id; }
   const std::string &get_blind_id() const { return blind_id_; }
-  void set_name(const std::string &name) { name_ = name; cover::Cover::set_name(name_.c_str()); }
+  // keep a no-op declaration so Python to_code can call set_name()
+  void set_name(const std::string &name);
   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
 
   // lifecycle
@@ -72,7 +73,6 @@ class ARCBlind : public cover::Cover, public Component {
  private:
   ARCBridgeComponent *parent_{nullptr};
   std::string blind_id_;
-  std::string name_;
   // ignore control calls during early init to avoid accidental open on boot
   bool ignore_control_{true};
   float last_published_position_{NAN};
