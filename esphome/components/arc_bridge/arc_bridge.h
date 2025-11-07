@@ -84,7 +84,8 @@ class ARCBlind : public cover::Cover, public Component {
   explicit ARCBlind(const std::string &blind_id) : blind_id_(blind_id) {}
 
   // legacy shims for YAML/codegen compatibility
-  void set_component_source(const std::string &) {}
+  //void set_component_source(const std::string &) {}
+  void set_component_source(const void *) {}   // accept LOG_STR() safely
   void set_blind_id(const std::string &id) { blind_id_ = id; }
 
   // lifecycle
