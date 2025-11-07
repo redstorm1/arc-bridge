@@ -461,13 +461,5 @@ void ARCBlind::control(const cover::CoverCall &call) {
 
 void ARCBlind::set_invert_position(bool invert) { this->invert_position_ = invert; }
 
-cover::CoverTraits ARCBlind::get_traits() {
-  cover::CoverTraits t;
-  t.set_supports_position(true);
-  t.set_supports_tilt(false);
-  return t;
-}
-
-
 }  // namespace arc_bridge
 }  // namespace esphome
