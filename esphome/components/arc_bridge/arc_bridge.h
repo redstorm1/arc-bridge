@@ -61,21 +61,31 @@ class ARCBlind : public cover::Cover, public Component {
   void set_name(const std::string &name) { name_ = name; }
   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
 
- protected:
-    cover::CoverTraits get_traits() override {
-      cover::CoverTraits traits{};
-      traits.set_is_assumed_state(false);
-      traits.set_supports_position(true);
-      return traits;
-    }
+  // lifecycle
+  void setup() override;
 
-  void control(const cover::CoverCall &call) override;
+  // publish a position received from the bridge (0.0..1.0 HA semantics)
+  void publish_position(float position);
+
+ protected:
+     cover::CoverTraits get_traits() override {
+       cover::CoverTraits traits{};
+      // mark as assumed so that HA/restore doesn't force commands on startup
+      traits.set_is_assumed_state(true);
+       traits.set_supports_position(true);
+       return traits;
+     }
+
+   void control(const cover::CoverCall &call) override;
 
  private:
-  ARCBridgeComponent *parent_{nullptr};
-  std::string blind_id_;
-  std::string name_;
-};
+   ARCBridgeComponent *parent_{nullptr};
+   std::string blind_id_;
+   std::string name_;
+  // ignore control calls during early init to avoid accidental open on boot
+  bool ignore_control_{true};
+  float last_published_position_{NAN};
+ };
 
 }  // namespace arc_bridge
 }  // namespace esphome
