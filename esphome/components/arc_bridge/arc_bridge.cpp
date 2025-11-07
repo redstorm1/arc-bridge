@@ -34,10 +34,6 @@ void ARCBridgeComponent::loop() {
   }
 }
 
-// store boot tracking members
-uint32_t ARCBridgeComponent::boot_millis_{0};
-bool ARCBridgeComponent::startup_guard_cleared_{true};
-
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {
   if (blind == nullptr)
     return;
