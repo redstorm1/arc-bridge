@@ -15,26 +15,31 @@ static const char *const TAG = "arc_bridge";
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {
   if (blind == nullptr)
     return;
-
+  ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s' name='%s')",
+           blind->get_blind_id().c_str(), blind->get_name().c_str());
   blind->set_parent(this);
   this->blinds_.push_back(blind);
 }
 
-// helper to find registered blind by id
 ARCBlind *ARCBridgeComponent::find_blind_by_id(const std::string &id) {
   for (auto *b : this->blinds_) {
-    if (b == nullptr)
-      continue;
-    // compare with stored blind_id_
-    // blind_id_ is private, so compare via getter-like access: use name matching if needed
-    // we assume blind->set_blind_id() was called with the same id used in incoming frames
-    // use dynamic_cast to access blind_id_ via a small lambda (friend not available) -> use pointer compare via string
-    // Since blind_id_ is private, require that callers set the same string in lq_map_/status_map_ keys;
-    // As a pragmatic approach compare the sensor map keys (we expect blind_id==key), otherwise compare the name_.
-    // Try to compare by the blind->name_ if set (we added set_name earlier)
-    // To avoid accessing private fields, check via text sensor map presence below in parser instead.
+    if (b == nullptr) continue;
+    ESP_LOGD(TAG, "find_blind_by_id(): checking blind id='%s' against '%s'",
+             b->get_blind_id().c_str(), id.c_str());
+    if (b->get_blind_id() == id)
+      return b;
   }
-  return nullptr; // fallback — we will use sensor maps keyed by blind id for updates
+  return nullptr;
+}
+
+void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
+  ESP_LOGD(TAG, "map_lq_sensor(): mapping lq sensor for id='%s'", id.c_str());
+  lq_map_[id] = s;
+}
+
+void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
+  ESP_LOGD(TAG, "map_status_sensor(): mapping status sensor for id='%s'", id.c_str());
+  status_map_[id] = s;
 }
 
 void ARCBridgeComponent::send_move_command(const std::string &blind_id, uint8_t percent) {
