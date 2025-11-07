@@ -6,15 +6,42 @@
 #include <cstdlib>
 
 #include "esphome/core/log.h"
+#include <Arduino.h> // for millis()
 
 namespace esphome {
 namespace arc_bridge {
 
 static const char *const TAG = "arc_bridge";
+static const uint32_t STARTUP_GUARD_MS = 10 * 1000; // 10s
+
+void ARCBridgeComponent::setup() {
+  this->boot_millis_ = millis();
+  this->startup_guard_cleared_ = false;
+  ESP_LOGD(TAG, "ARCBridgeComponent setup, startup guard active for %ums", STARTUP_GUARD_MS);
+}
+
+void ARCBridgeComponent::loop() {
+  if (this->startup_guard_cleared_)
+    return;
+  uint32_t now = millis();
+  if (now - this->boot_millis_ >= STARTUP_GUARD_MS) {
+    ESP_LOGD(TAG, "Startup guard timeout elapsed - clearing ignore_control_ for all blinds");
+    for (auto *b : this->blinds_) {
+      if (b == nullptr) continue;
+      b->clear_startup_guard();
+    }
+    this->startup_guard_cleared_ = true;
+  }
+}
+
+// store boot tracking members
+uint32_t ARCBridgeComponent::boot_millis_{0};
+bool ARCBridgeComponent::startup_guard_cleared_{true};
 
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {
   if (blind == nullptr)
     return;
+
   ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s')",
            blind->get_blind_id().c_str());
   blind->set_parent(this);
@@ -189,6 +216,13 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
 void ARCBlind::setup() {
   // keep ignore_control_ true until we receive a real position from the bridge
   // to avoid acting on HA restore/optimistic commands on startup.
+}
+
+void ARCBlind::clear_startup_guard() {
+  if (!this->ignore_control_)
+    return;
+  this->ignore_control_ = false;
+  ESP_LOGD(TAG, "clear_startup_guard(): cleared ignore_control_ for blind '%s'", this->blind_id_.c_str());
 }
 
 void ARCBlind::set_name(const std::string &name) {

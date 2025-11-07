@@ -32,6 +32,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_position_query(const std::string &blind_id);
   void handle_incoming_frame(const std::string &frame);
 
+  void setup() override;
+  void loop() override;
+
  private:
   void send_simple_command_(const std::string &blind_id, char command,
                             const std::string &payload = std::string());
@@ -52,6 +55,8 @@ class ARCBlind : public cover::Cover, public Component {
   // store name and set it on base entity
   void set_name(const std::string &name);
   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
+  // clear the startup ignore guard (called by bridge timeout or on first pos)
+  void clear_startup_guard();
 
   // lifecycle
   void setup() override;
