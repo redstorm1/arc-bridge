@@ -106,11 +106,16 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   // publish updates
   for (auto *cv : covers_) {
-    if (cv && cv->get_blind_id() == id) {
+    if (!cv) continue;
+    ESP_LOGD(TAG, "Checking cover id='%s' against frame id='%s'",
+            cv->get_blind_id().c_str(), id.c_str());
+    if (cv->get_blind_id() == id) {
+      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d", id.c_str(), pos);
       if (pos >= 0) cv->publish_raw_position(pos);
       break;
     }
   }
+
 
   // link quality sensor (optional)
   if (rssi >= 0) {
