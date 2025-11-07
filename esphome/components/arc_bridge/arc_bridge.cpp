@@ -16,9 +16,19 @@ void ARCBridgeComponent::add_blind(ARCBlind *blind) {
   if (blind == nullptr)
     return;
   ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s' name='%s')",
-           blind->get_blind_id().c_str(), blind->get_name().c_str());
+           blind->get_blind_id().c_str(), blind->get_name());
   blind->set_parent(this);
   this->blinds_.push_back(blind);
+}
+
+void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
+  ESP_LOGD(TAG, "map_lq_sensor(): mapping lq sensor for id='%s'", id.c_str());
+  lq_map_[id] = s;
+}
+
+void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
+  ESP_LOGD(TAG, "map_status_sensor(): mapping status sensor for id='%s'", id.c_str());
+  status_map_[id] = s;
 }
 
 ARCBlind *ARCBridgeComponent::find_blind_by_id(const std::string &id) {
@@ -32,14 +42,18 @@ ARCBlind *ARCBridgeComponent::find_blind_by_id(const std::string &id) {
   return nullptr;
 }
 
-void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
-  ESP_LOGD(TAG, "map_lq_sensor(): mapping lq sensor for id='%s'", id.c_str());
-  lq_map_[id] = s;
-}
+void ARCBridgeComponent::send_simple_command_(const std::string &blind_id, char command,
+                                              const std::string &payload) {
+  std::string frame;
+  frame.reserve(1 + blind_id.size() + 1 + payload.size() + 1);
+  frame.push_back('!');
+  frame += blind_id;
+  frame.push_back(command);
+  frame += payload;
+  frame.push_back(';');
 
-void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
-  ESP_LOGD(TAG, "map_status_sensor(): mapping status sensor for id='%s'", id.c_str());
-  status_map_[id] = s;
+  ESP_LOGD(TAG, "TX -> %s", frame.c_str());
+  this->write_str(frame.c_str());
 }
 
 void ARCBridgeComponent::send_move_command(const std::string &blind_id, uint8_t percent) {
@@ -49,6 +63,18 @@ void ARCBridgeComponent::send_move_command(const std::string &blind_id, uint8_t 
   char payload[4] = {0};
   std::snprintf(payload, sizeof(payload), "%03u", static_cast<unsigned int>(percent));
   this->send_simple_command_(blind_id, 'm', payload);
+}
+
+void ARCBridgeComponent::send_open_command(const std::string &blind_id) {
+  this->send_simple_command_(blind_id, 'o');
+}
+
+void ARCBridgeComponent::send_close_command(const std::string &blind_id) {
+  this->send_simple_command_(blind_id, 'c');
+}
+
+void ARCBridgeComponent::send_stop_command(const std::string &blind_id) {
+  this->send_simple_command_(blind_id, 's');
 }
 
 void ARCBridgeComponent::send_position_query(const std::string &blind_id) {
@@ -84,35 +110,30 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   std::string blind_id = body.substr(0, i);
   std::string rest = (i < body.size()) ? body.substr(i) : "";
 
-  // simple regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
+  // regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
   std::smatch m;
-  std::regex re_enp(R"((?:Enp)\s*=\s*([0-9]+))", std::regex::icase);
-  std::regex re_enl(R"((?:Enl)\s*=\s*([0-9]+))", std::regex::icase);
-  std::regex re_r(R"((?:\bR)\s*=\s*([0-9]+))", std::regex::icase);
-  std::regex re_ra(R"((?:RA)\s*=\s*([0-9]+))", std::regex::icase);
-  std::regex re_pos(R"((?:\br)\s*[:=]\s*([0-9]+))", std::regex::icase);
+  std::regex re_enp(R"((?:Enp)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+  std::regex re_enl(R"((?:Enl)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+  std::regex re_ra(R"((?:RA)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+  std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))", std::regex::icase);
 
   int enp = -1, enl = -1, r = -1, ra = -1, pos = -1;
 
   if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
-    const char *s = m[1].str().c_str();
-    enp = static_cast<int>(std::strtol(s, nullptr, 10));
+    enp = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
-    const char *s = m[1].str().c_str();
-    enl = static_cast<int>(std::strtol(s, nullptr, 10));
+    enl = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_r) && m.size() > 1) {
-    const char *s = m[1].str().c_str();
-    r = static_cast<int>(std::strtol(s, nullptr, 10));
+    r = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_ra) && m.size() > 1) {
-    const char *s = m[1].str().c_str();
-    ra = static_cast<int>(std::strtol(s, nullptr, 10));
+    ra = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
-    const char *s = m[1].str().c_str();
-    pos = static_cast<int>(std::strtol(s, nullptr, 10));
+    pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
 
   ESP_LOGD(TAG, "RX <- id=%s rest=\"%s\"", blind_id.c_str(), rest.c_str());
@@ -154,78 +175,31 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   if (pos >= 0) {
     // pos from device: 0 = open, 100 = closed -> HA/ESPhome uses 1.0 = open, 0.0 = closed
     float ha_pos = 1.0f - (static_cast<float>(pos) / 100.0f);
-
-    // try to find a registered blind with the same id and call its publish_position
-    for (auto *b : this->blinds_) {
-      if (b == nullptr)
-        continue;
-      // We compare using the same id strings used to configure sensors: try to match via lq/status map keys
-      // If users set the blind id as the same key when calling set_blind_id, this will work.
-      // We'll use RTTI-free approach: attempt to compare by publishing to matches only when the configured id string equals blind_id
-      // Add a small helper by casting to ARCBlind* and checking an exposed method — we added publish_position and setup only.
-      // Use dynamic lookup via a lambda: we assume user set the blind_id_ equal to the key; to access it we rely on the public set_blind_id during configuration
-      // Workaround: compare the pointer's name (if set via set_name) — but name_ is private. To keep things simple, require that users register sensors using the blind id keys.
-    }
-
-    // publish to any ARCBlind that has a mapped lq/status sensor for this blind id: try to find via lq_map_/status_map_ ownership
-    // find a blind pointer that was registered and whose id was used as key in lq_map_/status_map_ maps:
-    for (auto *b : this->blinds_) {
-      if (b == nullptr) continue;
-      // best-effort: check whether this blind has a mapped sensor under blind_id
-      bool mapped = (this->lq_map_.count(blind_id) || this->status_map_.count(blind_id));
-      if (mapped) {
-        // call publish_position on the blind — implementation in ARCBlind will publish to the cover entity
-        b->publish_position(ha_pos);
-        break;
-      }
+    ARCBlind *b = this->find_blind_by_id(blind_id);
+    if (b != nullptr) {
+      ESP_LOGD(TAG, "Publishing position %.3f to blind '%s'", ha_pos, blind_id.c_str());
+      b->publish_position(ha_pos);
+    } else {
+      ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
     }
   }
-
-}
-
-void ARCBridgeComponent::send_open_command(const std::string &blind_id) {
-  this->send_simple_command_(blind_id, 'o');
-}
-
-void ARCBridgeComponent::send_close_command(const std::string &blind_id) {
-  this->send_simple_command_(blind_id, 'c');
-}
-
-void ARCBridgeComponent::send_stop_command(const std::string &blind_id) {
-  this->send_simple_command_(blind_id, 's');
-}
-
-void ARCBridgeComponent::send_simple_command_(const std::string &blind_id, char command,
-                                              const std::string &payload) {
-  std::string frame;
-  frame.reserve(1 + blind_id.size() + 1 + payload.size() + 1);
-  frame.push_back('!');
-  frame += blind_id;
-  frame.push_back(command);
-  frame += payload;
-  frame.push_back(';');
-
-  ESP_LOGD(TAG, "TX -> %s", frame.c_str());
-  this->write_str(frame.c_str());
 }
 
 // ARCBlind methods
 void ARCBlind::setup() {
   // keep ignore_control_ true until we receive a real position from the bridge
-  // this avoids acting on HA restore/optimistic commands on startup.
-  // leave ignore_control_ as-is here; it will be cleared in publish_position()
+  // to avoid acting on HA restore/optimistic commands on startup.
 }
 
 void ARCBlind::publish_position(float position) {
   // store last and publish state to the cover (position 0..1)
   this->last_published_position_ = position;
-  // publish_state(float) exists in Cover base; call it to update UI without sending commands
   this->publish_state(position);
 
   // clear the startup guard when we receive the first real position
   if (this->ignore_control_) {
     this->ignore_control_ = false;
-    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->get_name().c_str());
+    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->get_name());
   }
 }
 
@@ -237,7 +211,7 @@ void ARCBlind::control(const cover::CoverCall &call) {
 
   // ignore early control calls during init to avoid unwanted startup moves
   if (this->ignore_control_) {
-    ESP_LOGD(TAG, "Ignoring control for %s during init", this->get_name().c_str());
+    ESP_LOGD(TAG, "Ignoring control for %s during init", this->get_name());
     return;
   }
 
@@ -268,6 +242,7 @@ void ARCBlind::control(const cover::CoverCall &call) {
     return;
   }
 }
+
 }  // namespace arc_bridge
 }  // namespace esphome
 
