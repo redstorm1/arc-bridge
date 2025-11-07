@@ -207,6 +207,12 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   // 'r' (lowercase) is the position token — match lowercase only
   std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))");
 
+  // detect bare presence of Enp/Enl tokens (may appear without "=number")
+  std::regex re_enp_key(R"((?:Enp)\b)", std::regex::icase);
+  std::regex re_enl_key(R"((?:Enl)\b)", std::regex::icase);
+  bool enp_present_key = false;
+  bool enl_present_key = false;
+
   int enp = -1, enl = -1, r_raw = -1, pos = -1;
 
   if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
@@ -215,6 +221,10 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
     enl = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
+  // detect bare tokens if numeric parsing didn't find values
+  std::smatch mkey;
+  if (std::regex_search(rest, mkey, re_enp_key)) enp_present_key = true;
+  if (std::regex_search(rest, mkey, re_enl_key)) enl_present_key = true;
   if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
     pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
@@ -253,16 +263,24 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   auto it_status = this->status_map_.find(blind_id);
   if (it_status != this->status_map_.end() && it_status->second != nullptr) {
     std::string status;
+    // prefer numeric values when present, otherwise indicate bare token presence
     if (enp >= 0) {
-      if (!status.empty()) status += " ";
       status += "Enp=" + std::to_string(enp);
+    } else if (enp_present_key) {
+      if (!status.empty()) status += " ";
+      status += "Enp";
     }
     if (enl >= 0) {
       if (!status.empty()) status += " ";
       status += "Enl=" + std::to_string(enl);
+    } else if (enl_present_key) {
+      if (!status.empty()) status += " ";
+      status += "Enl";
     }
-    if (!status.empty())
+    if (!status.empty()) {
+      ESP_LOGD(TAG, "Publishing status for id='%s' -> %s", blind_id.c_str(), status.c_str());
       it_status->second->publish_state(status);
+    }
   }
 
   // update cover position if we can find a matching blind and pos is present
