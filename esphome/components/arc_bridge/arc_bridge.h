@@ -20,7 +20,7 @@ class ARCBlind;
  * - Owns the UART link and parses ARC frames.
  * - Manages ARCBlind (cover) entities.
  * - Publishes per-blind link quality (sensor) and status (text sensor).
- * - Round-robin periodic position query (!IDr?;).
+ * - Performs round-robin periodic position queries (!IDr?;).
  */
 class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
@@ -64,9 +64,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   uint32_t last_query_millis_{0};
   size_t query_index_{0};
 
-  // query interval between successive IDs (round-robin)
   static constexpr uint32_t QUERY_INTERVAL_MS{1500};
-  // startup guard: ignore controls until we’ve seen real positions for a bit
   static constexpr uint32_t STARTUP_GUARD_MS{10 * 1000};
 
   // registry
@@ -78,39 +76,51 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
 /**
  * ARCBlind
  * - One HA cover per physical blind.
- * - device 0=open, 100=closed  ↔  HA 1=open, 0=closed (invert optional)
+ * - device 0=open, 100=closed ↔ HA 1=open, 0=closed (invert optional)
  */
 class ARCBlind : public cover::Cover, public Component {
  public:
-  // default constructible for codegen
   ARCBlind() = default;
+  explicit ARCBlind(const std::string &blind_id) : blind_id_(blind_id) {}
 
-  // identity/config
+  // legacy shims for YAML/codegen compatibility
+  void set_component_source(const std::string &) {}
   void set_blind_id(const std::string &id) { blind_id_ = id; }
+
+  // lifecycle
+  void setup();  // (no override — Cover has no setup())
+
+  // traits
+  cover::CoverTraits get_traits() {
+    cover::CoverTraits t;
+    t.set_supports_position(true);
+    t.set_supports_tilt(false);
+    return t;
+  }
+
+  // state publication
+  void publish_position(float position);      // 0..1 to HA
+  void publish_raw_position(int device_pos);  // 0..100 device reading
+
+  // identity / linkage
   const std::string &get_blind_id() const { return blind_id_; }
+  void set_parent(ARCBridgeComponent *p) { parent_ = p; }
   void set_name(const std::string &name);
-  void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
-  void set_invert_position(bool invert);
 
-  // lifecycle (match Component)
-  void setup() override;
-
-  // publish helpers
-  void publish_position(float position);
-  void publish_raw_position(int device_pos);
-
-  void clear_startup_guard();
-
- protected:
-  cover::CoverTraits get_traits() override;
+  // control
   void control(const cover::CoverCall &call) override;
 
- private:
+  // startup guard / config
+  void clear_startup_guard();
+  void set_invert_position(bool invert);
+
+ protected:
   ARCBridgeComponent *parent_{nullptr};
   std::string blind_id_;
   std::string name_;
-  bool ignore_control_{true};
+
   bool invert_position_{false};
+  bool ignore_control_{true};  // ignore controls until first valid position arrives
   float last_published_position_{NAN};
 };
 
