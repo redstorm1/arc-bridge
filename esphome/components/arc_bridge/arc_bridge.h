@@ -43,6 +43,10 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::vector<ARCBlind *> blinds_;
   std::map<std::string, sensor::Sensor *> lq_map_;
   std::map<std::string, text_sensor::TextSensor *> status_map_;
+
+  // startup guard tracking
+  uint32_t boot_millis_{0};
+  bool startup_guard_cleared_{false};
 };
 
 // --------------------------------------------------------------------
@@ -52,11 +56,8 @@ class ARCBlind : public cover::Cover, public Component {
  public:
   void set_blind_id(const std::string &id) { blind_id_ = id; }
   const std::string &get_blind_id() const { return blind_id_; }
-  // store name and set it on base entity
   void set_name(const std::string &name);
   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
-  // clear the startup ignore guard (called by bridge timeout or on first pos)
-  void clear_startup_guard();
 
   // lifecycle
   void setup() override;
@@ -64,10 +65,12 @@ class ARCBlind : public cover::Cover, public Component {
   // publish a position received from the bridge (0.0..1.0 HA semantics)
   void publish_position(float position);
 
+  // clear the startup ignore guard (called by bridge timeout or on first pos)
+  void clear_startup_guard();
+
  protected:
   cover::CoverTraits get_traits() override {
     cover::CoverTraits traits{};
-    // mark as assumed so that HA/restore doesn't force commands on startup
     traits.set_is_assumed_state(true);
     traits.set_supports_position(true);
     return traits;
@@ -76,13 +79,12 @@ class ARCBlind : public cover::Cover, public Component {
   void control(const cover::CoverCall &call) override;
 
  private:
-   ARCBridgeComponent *parent_{nullptr};
-   std::string blind_id_;
-   std::string name_;
-   // ignore control calls during early init to avoid accidental open on boot
-   bool ignore_control_{true};
-   float last_published_position_{NAN};
- };
+  ARCBridgeComponent *parent_{nullptr};
+  std::string blind_id_;
+  std::string name_;
+  bool ignore_control_{true};
+  float last_published_position_{NAN};
+};
 
 }  // namespace arc_bridge
 }  // namespace esphome
