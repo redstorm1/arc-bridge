@@ -22,8 +22,8 @@ class ARCBlind;
 class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
   void add_blind(ARCBlind *blind);
-  void map_lq_sensor(const std::string &id, sensor::Sensor *s) { lq_map_[id] = s; }
-  void map_status_sensor(const std::string &id, text_sensor::TextSensor *s) { status_map_[id] = s; }
+  void map_lq_sensor(const std::string &id, sensor::Sensor *s);
+  void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
 
   void send_move_command(const std::string &blind_id, uint8_t percent);
   void send_open_command(const std::string &blind_id);
