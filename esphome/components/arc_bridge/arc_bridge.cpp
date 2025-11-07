@@ -21,17 +21,67 @@ void ARCBridgeComponent::setup() {
 }
 
 void ARCBridgeComponent::loop() {
-  if (this->startup_guard_cleared_)
-    return;
-  uint32_t now = millis();
-  if (now - this->boot_millis_ >= STARTUP_GUARD_MS) {
-    ESP_LOGD(TAG, "Startup guard timeout elapsed - clearing ignore_control_ for all blinds");
-    for (auto *b : this->blinds_) {
-      if (b == nullptr) continue;
-      b->clear_startup_guard();
+  // startup guard clearing (existing)
+  if (!this->startup_guard_cleared_) {
+    uint32_t now = millis();
+    if (now - this->boot_millis_ >= STARTUP_GUARD_MS) {
+      ESP_LOGD(TAG, "Startup guard timeout elapsed - clearing ignore_control_ for all blinds");
+      for (auto *b : this->blinds_) {
+        if (b == nullptr) continue;
+        b->clear_startup_guard();
+      }
+      this->startup_guard_cleared_ = true;
     }
-    this->startup_guard_cleared_ = true;
   }
+
+  // --- UART read handling: assemble ';' terminated frames ---
+  while (this->available()) {
+    int c = this->read();
+    if (c < 0) break;
+    this->rx_buffer_.push_back(static_cast<char>(c));
+    // try to extract complete frames: find '!' then following ';'
+    size_t start = this->rx_buffer_.find('!');
+    if (start != std::string::npos) {
+      size_t term = this->rx_buffer_.find(';', start);
+      if (term != std::string::npos) {
+        std::string frame = this->rx_buffer_.substr(start, term - start + 1);
+        // erase up to and including the terminator
+        this->rx_buffer_.erase(0, term + 1);
+        this->handle_incoming_frame(frame);
+        // continue while loop — there may be more frames in buffer
+      } else {
+        // no terminator yet, keep waiting for more bytes
+        // but trim leading garbage before first '!' to avoid unbounded growth
+        if (start > 0) this->rx_buffer_.erase(0, start);
+        break;
+      }
+    } else {
+      // no start char yet, drop data before first '!' if buffer grows
+      if (this->rx_buffer_.size() > 256) this->rx_buffer_.clear();
+      break;
+    }
+  }
+
+  // --- Periodic position queries (round-robin) ---
+  uint32_t now_q = millis();
+  if (now_q - this->last_query_millis_ >= this->QUERY_INTERVAL_MS) {
+    this->last_query_millis_ = now_q;
+    if (!this->blinds_.empty()) {
+      // ensure index valid
+      if (this->query_index_ >= this->blinds_.size()) this->query_index_ = 0;
+      ARCBlind *b = this->blinds_[this->query_index_];
+      if (b != nullptr) {
+        ESP_LOGD(TAG, "Periodic position query -> id='%s'", b->get_blind_id().c_str());
+        this->send_position_query(b->get_blind_id());
+      }
+      this->query_index_ = (this->query_index_ + 1) % (this->blinds_.empty() ? 1 : this->blinds_.size());
+    }
+  }
+}
+
+// allow forcing an immediate query (callable from codegen if desired)
+void ARCBridgeComponent::request_position_now(const std::string &blind_id) {
+  this->send_position_query(blind_id);
 }
 
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {

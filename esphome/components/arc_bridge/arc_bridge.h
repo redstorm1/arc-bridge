@@ -21,32 +21,42 @@ class ARCBlind;
 // --------------------------------------------------------------------
 class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
-  void add_blind(ARCBlind *blind);
-  void map_lq_sensor(const std::string &id, sensor::Sensor *s);
-  void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
+   void add_blind(ARCBlind *blind);
+   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
+   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
+  // force an immediate position query for a blind
+  void request_position_now(const std::string &blind_id);
 
-  void send_move_command(const std::string &blind_id, uint8_t percent);
-  void send_open_command(const std::string &blind_id);
-  void send_close_command(const std::string &blind_id);
-  void send_stop_command(const std::string &blind_id);
-  void send_position_query(const std::string &blind_id);
-  void handle_incoming_frame(const std::string &frame);
+   void send_move_command(const std::string &blind_id, uint8_t percent);
+   void send_open_command(const std::string &blind_id);
+   void send_close_command(const std::string &blind_id);
+   void send_stop_command(const std::string &blind_id);
+   void send_position_query(const std::string &blind_id);
+   void handle_incoming_frame(const std::string &frame);
 
-  void setup() override;
-  void loop() override;
+   void setup() override;
+   void loop() override;
 
  private:
-  void send_simple_command_(const std::string &blind_id, char command,
-                            const std::string &payload = std::string());
-  ARCBlind *find_blind_by_id(const std::string &id);
+   void send_simple_command_(const std::string &blind_id, char command,
+                             const std::string &payload = std::string());
+   ARCBlind *find_blind_by_id(const std::string &id);
 
-  std::vector<ARCBlind *> blinds_;
-  std::map<std::string, sensor::Sensor *> lq_map_;
-  std::map<std::string, text_sensor::TextSensor *> status_map_;
+   std::vector<ARCBlind *> blinds_;
+   std::map<std::string, sensor::Sensor *> lq_map_;
+   std::map<std::string, text_sensor::TextSensor *> status_map_;
 
-  // startup guard tracking
-  uint32_t boot_millis_{0};
-  bool startup_guard_cleared_{false};
+   // startup guard tracking
+   uint32_t boot_millis_{0};
+   bool startup_guard_cleared_{false};
+
+  // RX buffer for assembling ';' terminated frames
+  std::string rx_buffer_;
+
+  // periodic position query state (round-robin through blinds)
+  uint32_t last_query_millis_{0};
+  size_t query_index_{0};
+  static constexpr uint32_t QUERY_INTERVAL_MS = 15 * 1000;  // 15s between queries (adjustable)
 };
 
 // --------------------------------------------------------------------
