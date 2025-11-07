@@ -197,54 +197,54 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
     rest = (i < body.size()) ? body.substr(i) : "";
   }
 
-  // regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
+  // regex-based extraction for tokens like Enp=123, Enl=0, Rxx (hex), r=010 etc.
   std::smatch m;
   // Enp/Enl are case-insensitive
   std::regex re_enp(R"((?:Enp)\s*[:=]?\s*([0-9]+))", std::regex::icase);
   std::regex re_enl(R"((?:Enl)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  // RA (upper-case) and R (upper-case) are link-quality tokens — match uppercase only
-  std::regex re_ra(R"((?:RA)\s*[:=]?\s*([0-9]+))");
-  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9]+))");
+  // Rxx is radio raw value in hex (two hex digits). Match hex pair.
+  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9A-Fa-f]{2}))");
   // 'r' (lowercase) is the position token — match lowercase only
   std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))");
 
-  int enp = -1, enl = -1, r = -1, ra = -1, pos = -1;
+  int enp = -1, enl = -1, r_raw = -1, pos = -1;
 
-  // Prefer RA (upper-case) and parse position 'r' (lowercase) specifically.
   if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
     enp = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
     enl = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
-  if (std::regex_search(rest, m, re_ra) && m.size() > 1) {
-    ra = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
-  }
   if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
     pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_r) && m.size() > 1) {
-    r = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
+    // parse R as hex (raw radio value 0x00..0xFF)
+    r_raw = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 16));
   }
 
   // summarise parsed values for logging
   std::string summary = "id=" + blind_id;
   if (enp >= 0) summary += " Enp=" + std::to_string(enp);
   if (enl >= 0) summary += " Enl=" + std::to_string(enl);
-  if (r >= 0) summary += " R=" + std::to_string(r);
-  if (ra >= 0) summary += " RA=" + std::to_string(ra);
+  if (r_raw >= 0) {
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "0x%02X", r_raw);
+    summary += " R=" + std::string(buf);
+  }
   if (pos >= 0) summary += " r=" + std::to_string(pos);
 
   ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
 
-  // publish/update link-quality sensor (prefer RA then R)
+  // publish/update link-quality sensor using Rxx only
   auto it_lq = this->lq_map_.find(blind_id);
   if (it_lq != this->lq_map_.end() && it_lq->second != nullptr) {
     float lq_val = -1.0f;
-    if (ra >= 0)
-      lq_val = static_cast<float>(ra);
-    else if (r >= 0)
-      lq_val = static_cast<float>(r);
+    if (r_raw >= 0) {
+      // convert raw radio byte to percentage:
+      // LinkQuality% = 100 * (255 - Rraw) / 255
+      lq_val = (255.0f - static_cast<float>(r_raw)) * 100.0f / 255.0f;
+    }
     if (lq_val >= 0.0f)
       it_lq->second->publish_state(lq_val);
   }
@@ -263,6 +263,17 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
     }
     if (!status.empty())
       it_status->second->publish_state(status);
+  }
+
+  // update cover position if we can find a matching blind and pos is present
+  if (pos >= 0) {
+    ARCBlind *b = this->find_blind_by_id(blind_id);
+    if (b != nullptr) {
+      ESP_LOGD(TAG, "Publishing raw position %d to blind '%s'", pos, blind_id.c_str());
+      b->publish_raw_position(pos);
+    } else {
+      ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
+    }
   }
 }
 
