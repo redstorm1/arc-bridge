@@ -179,12 +179,23 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
   if (!body.empty() && body.back() == ';')
     body.pop_back();
 
-  // extract blind id: consecutive alnum chars from start
-  size_t i = 0;
-  while (i < body.size() && std::isalnum(static_cast<unsigned char>(body[i])))
-    ++i;
-  std::string blind_id = body.substr(0, i);
-  std::string rest = (i < body.size()) ? body.substr(i) : "";
+  // extract blind id: device uses short uppercase IDs (e.g. "USZ","NOM","TXY").
+  // match leading 2..4 uppercase letters as id, rest is the remainder of the frame.
+  std::string blind_id;
+  std::string rest;
+  std::smatch idm;
+  std::regex re_id(R"(^([A-Z]{2,4})(.*))");
+  if (std::regex_match(body, idm, re_id) && idm.size() > 1) {
+    blind_id = idm[1].str();
+    rest = (idm.size() > 2) ? idm[2].str() : "";
+  } else {
+    // fallback: take up to first non-alnum (legacy behavior)
+    size_t i = 0;
+    while (i < body.size() && std::isalnum(static_cast<unsigned char>(body[i])))
+      ++i;
+    blind_id = body.substr(0, i);
+    rest = (i < body.size()) ? body.substr(i) : "";
+  }
 
   // regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
   std::smatch m;
@@ -248,18 +259,6 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
     }
     if (!status.empty())
       it_status->second->publish_state(status);
-  }
-
-  // update cover position if we can find a matching blind and pos is present
-  if (pos >= 0) {
-    // pass raw device position (0..100) to the blind object which will convert
-    ARCBlind *b = this->find_blind_by_id(blind_id);
-    if (b != nullptr) {
-      ESP_LOGD(TAG, "Publishing raw position %d to blind '%s'", pos, blind_id.c_str());
-      b->publish_raw_position(pos);
-    } else {
-      ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
-    }
   }
 }
 
