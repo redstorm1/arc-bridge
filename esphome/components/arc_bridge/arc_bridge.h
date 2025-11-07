@@ -80,44 +80,37 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
  * - One HA cover per physical blind.
  * - device 0=open, 100=closed  ↔  HA 1=open, 0=closed (invert optional)
  */
-class ARCBlind : public cover::Cover {
+class ARCBlind : public cover::Cover, public Component {
  public:
-  explicit ARCBlind(const std::string &blind_id) : blind_id_(blind_id) {}
+  // default constructible for codegen
+  ARCBlind() = default;
 
-  // lifecycle
-  void setup() override;
-
-  // traits
-  cover::CoverTraits get_traits() override {
-    cover::CoverTraits t;
-    t.set_supports_position(true);
-    t.set_supports_tilt(false);  // flip to true when you wire tilt publishing/control
-    return t;
-  }
-
-  // state publication
-  void publish_position(float position);      // 0..1 to HA
-  void publish_raw_position(int device_pos);  // 0..100 device reading
-
-  // identity / linkage
+  // identity/config
+  void set_blind_id(const std::string &id) { blind_id_ = id; }
   const std::string &get_blind_id() const { return blind_id_; }
-  void set_parent(ARCBridgeComponent *p) { parent_ = p; }
   void set_name(const std::string &name);
-
-  // control
-  void control(const cover::CoverCall &call) override;
-
-  // startup guard / config
-  void clear_startup_guard();
+  void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
   void set_invert_position(bool invert);
 
+  // lifecycle (match Component)
+  void setup() override;
+
+  // publish helpers
+  void publish_position(float position);
+  void publish_raw_position(int device_pos);
+
+  void clear_startup_guard();
+
  protected:
+  cover::CoverTraits get_traits() override;
+  void control(const cover::CoverCall &call) override;
+
+ private:
   ARCBridgeComponent *parent_{nullptr};
   std::string blind_id_;
   std::string name_;
-
+  bool ignore_control_{true};
   bool invert_position_{false};
-  bool ignore_control_{true};  // ignore controls until first valid position arrives
   float last_published_position_{NAN};
 };
 

@@ -14,6 +14,13 @@ namespace arc_bridge {
 
 static const char *const TAG = "arc_bridge";
 
+// move to file scope so they're constructed once
+static const std::regex RE_ENP(R"((?:Enp)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+static const std::regex RE_ENL(R"((?:Enl)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+static const std::regex RE_RHEX(R"((?:\bR)\s*[:=]?\s*([0-9A-Fa-f]{2}))");
+static const std::regex RE_RPOS(R"((?:\br)\s*[:=]?\s*([0-9]+))");
+static const std::regex RE_ID(R"(^([A-Z]{2,4})(.*))");
+
 // ───────────────────────────────────────────────────────────────────────────────
 // ARCBridgeComponent
 // ───────────────────────────────────────────────────────────────────────────────
@@ -157,116 +164,217 @@ void ARCBridgeComponent::request_position_now(const std::string &blind_id) {
 // ── Parser ─────────────────────────────────────────────────────────────────────
 
 void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
+  // log raw frame
   ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
-  if (frame.empty() || frame.front() != '!') return;
 
-  // strip '!' and trailing ';'
-  std::string body = frame.substr(1);
-  if (!body.empty() && body.back() == ';') body.pop_back();
-
-  // ID = 2–4 uppercase letters at start
-  std::string blind_id, rest;
-  {
-    std::smatch idm;
-    std::regex re_id(R"(^([A-Z]{2,4})(.*))");
-    if (std::regex_match(body, idm, re_id)) {
-      blind_id = idm[1].str();
-      rest = idm[2].str();
-    } else {
-      // fallback: alnum prefix as id
-      size_t i = 0;
-      while (i < body.size() && std::isalnum(static_cast<unsigned char>(body[i]))) ++i;
-      blind_id = body.substr(0, i);
-      rest = (i < body.size()) ? body.substr(i) : "";
-    }
-  }
-
-  // parse tokens
-  std::smatch m;
-  // r### b### ,Rxx    (we accept any order after ID)
-  std::regex re_status(R"(r(\d{3})b(\d{3}),R([0-9A-Fa-f]{2}))");
-  std::regex re_pos_only(R"(r(\d{3}))");
-  std::regex re_rssi(R"(,R([0-9A-Fa-f]{2}))");
-
-  // errors like !IDEnl;  or !IDEnp;
-  std::regex re_en(R"(^E(n[pl])$)", std::regex::icase);     // whole rest is Enl/Enp
-  std::regex re_en_any(R"(E(n[pl]))", std::regex::icase);   // Enl/Enp anywhere
-
-  int pos = -1;
-  int tilt = -1;
-  int r_raw = -1;
-  bool have_enl = false, have_enp = false;
-
-  // full status first
-  if (std::regex_search(rest, m, re_status)) {
-    pos = std::stoi(m[1]);
-    tilt = std::stoi(m[2]);
-    r_raw = static_cast<int>(std::strtol(m[3].str().c_str(), nullptr, 16));
-  } else {
-    // partials
-    if (std::regex_search(rest, m, re_pos_only)) pos = std::stoi(m[1]);
-    if (std::regex_search(rest, m, re_rssi)) r_raw = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 16));
-
-    // error detection
-    if (std::regex_match(rest, m, re_en)) {
-      std::string code = m[1];
-      have_enl = (code == "nl" || code == "NL");
-      have_enp = (code == "np" || code == "NP");
-    } else if (std::regex_search(rest, m, re_en_any)) {
-      std::string code = m[1];
-      have_enl = have_enl || (code == "nl" || code == "NL");
-      have_enp = have_enp || (code == "np" || code == "NP");
-    }
-  }
-
-  // log summary
-  {
-    char buf[16] = {0};
-    std::string summary = "id=" + blind_id;
-    if (pos >= 0) summary += " r=" + std::to_string(pos);
-    if (tilt >= 0) summary += " b=" + std::to_string(tilt);
-    if (r_raw >= 0) { std::snprintf(buf, sizeof(buf), "0x%02X", r_raw); summary += " R=" + std::string(buf); }
-    if (have_enl) summary += " Enl";
-    if (have_enp) summary += " Enp";
-    ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
-  }
-
-  // publish outputs
-  if (r_raw >= 0) this->publish_link_quality_(blind_id, r_raw);
-  if (have_enl || have_enp) this->publish_status_(blind_id, have_enp, have_enl, -1, -1);
-  this->publish_position_if_known_(blind_id, pos);
-}
-
-void ARCBridgeComponent::publish_link_quality_(const std::string &id, int r_raw_hex) {
-  auto it = this->lq_map_.find(id);
-  if (it == this->lq_map_.end() || it->second == nullptr) return;
-  // LinkQuality% = 100 * (255 - raw) / 255  (inverse of RSSI)
-  float pct = (255.0f - static_cast<float>(r_raw_hex)) * 100.0f / 255.0f;
-  if (pct < 0.0f) pct = 0.0f;
-  if (pct > 100.0f) pct = 100.0f;
-  it->second->publish_state(pct);
-}
-
-void ARCBridgeComponent::publish_status_(const std::string &id, bool have_enp, bool have_enl,
-                                         int /*enp_val*/, int /*enl_val*/) {
-  auto it = this->status_map_.find(id);
-  if (it == this->status_map_.end() || it->second == nullptr) return;
-
-  std::string status = "OK";
-  if (have_enp) status = "Not Paired";
-  else if (have_enl) status = "Not Listening";
-
-  it->second->publish_state(status);
-}
-
-void ARCBridgeComponent::publish_position_if_known_(const std::string &id, int pos) {
-  if (pos < 0) return;
-  ARCBlind *b = this->find_blind_by_id(id);
-  if (!b) {
-    ESP_LOGW(TAG, "No blind registered for id='%s' (position %d ignored)", id.c_str(), pos);
+  if (frame.empty() || frame.front() != '!') {
+    ESP_LOGW(TAG, "Unexpected frame (no '!'): %s", frame.c_str());
     return;
   }
-  b->publish_raw_position(pos);
+
+  std::string body = frame.substr(1);
+  if (!body.empty() && body.back() == ';')
+    body.pop_back();
+
+  // --- extract blind id (leading 2..4 uppercase letters) ---
+  size_t idx = 0;
+  while (idx < body.size() && std::isupper(static_cast<unsigned char>(body[idx])) && idx < 4)
+    ++idx;
+  std::string blind_id;
+  if (idx >= 1)
+    blind_id = body.substr(0, idx);
+  else {
+    // fallback: take initial alnum run
+    idx = 0;
+    while (idx < body.size() && std::isalnum(static_cast<unsigned char>(body[idx])))
+      ++idx;
+    blind_id = body.substr(0, idx);
+  }
+  std::string rest = (idx < body.size()) ? body.substr(idx) : "";
+
+  // small helpers
+  auto skip_delims = [](const std::string &s, size_t &i) {
+    while (i < s.size()) {
+      unsigned char c = static_cast<unsigned char>(s[i]);
+      if (c == ' ' || c == ':' || c == '=' || c == ',' || c == ';')
+        ++i;
+      else
+        break;
+    }
+  };
+  auto match_ci = [](const std::string &s, size_t pos, const char *tok) -> bool {
+    size_t n = std::strlen(tok);
+    if (pos + n > s.size()) return false;
+    for (size_t k = 0; k < n; ++k) {
+      if (std::toupper(static_cast<unsigned char>(s[pos + k])) != std::toupper(static_cast<unsigned char>(tok[k])))
+        return false;
+    }
+    return true;
+  };
+
+  // parsed values
+  int enp = -1;
+  int enl = -1;
+  bool enp_key = false;
+  bool enl_key = false;
+  int r_raw = -1;   // raw hex 0x00..0xFF
+  int pos_val = -1; // numerical position (device 0..100)
+
+  // scan rest for tokens (fast manual parse)
+  size_t i = 0;
+  while (i < rest.size()) {
+    // skip separators
+    if (rest[i] == ' ' || rest[i] == ',' || rest[i] == ';') { ++i; continue; }
+
+    // Enp (case-insensitive) maybe followed by =number or standalone
+    if (match_ci(rest, i, "Enp")) {
+      enp_key = true;
+      i += 3;
+      size_t j = i;
+      skip_delims(rest, j);
+      // parse digits if present
+      if (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+        int val = 0;
+        while (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+          val = val * 10 + (rest[j] - '0');
+          ++j;
+        }
+        enp = val;
+        i = j;
+        continue;
+      } else {
+        i = j;
+        continue;
+      }
+    }
+
+    // Enl (case-insensitive)
+    if (match_ci(rest, i, "Enl")) {
+      enl_key = true;
+      i += 3;
+      size_t j = i;
+      skip_delims(rest, j);
+      if (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+        int val = 0;
+        while (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+          val = val * 10 + (rest[j] - '0');
+          ++j;
+        }
+        enl = val;
+        i = j;
+        continue;
+      } else {
+        i = j;
+        continue;
+      }
+    }
+
+    // lowercase r = position (digits)
+    if (rest[i] == 'r') {
+      size_t j = i + 1;
+      skip_delims(rest, j);
+      if (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+        int val = 0;
+        while (j < rest.size() && std::isdigit(static_cast<unsigned char>(rest[j]))) {
+          val = val * 10 + (rest[j] - '0');
+          ++j;
+        }
+        pos_val = val;
+        i = j;
+        continue;
+      } else {
+        ++i;
+        continue;
+      }
+    }
+
+    // uppercase R = radio raw value (hex 1-2 digits, prefer 2)
+    if (rest[i] == 'R') {
+      size_t j = i + 1;
+      skip_delims(rest, j);
+      // collect up to 2 hex digits
+      int val = 0;
+      size_t digits = 0;
+      while (j < rest.size() && digits < 2) {
+        unsigned char c = static_cast<unsigned char>(rest[j]);
+        int nib = -1;
+        if (c >= '0' && c <= '9') nib = c - '0';
+        else if (c >= 'A' && c <= 'F') nib = 10 + (c - 'A');
+        else if (c >= 'a' && c <= 'f') nib = 10 + (c - 'a');
+        else break;
+        val = val * 16 + nib;
+        ++digits;
+        ++j;
+      }
+      if (digits > 0) {
+        r_raw = val;
+        i = j;
+        continue;
+      } else {
+        ++i;
+        continue;
+      }
+    }
+
+    // unknown token: advance
+    ++i;
+  }
+
+  // summarise for log
+  std::string summary = "id=" + blind_id;
+  if (enp >= 0) summary += " Enp=" + std::to_string(enp);
+  else if (enp_key) summary += " Enp";
+  if (enl >= 0) summary += " Enl=" + std::to_string(enl);
+  else if (enl_key) summary += " Enl";
+  if (r_raw >= 0) {
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "0x%02X", r_raw);
+    summary += " R=" + std::string(buf);
+  }
+  if (pos_val >= 0) summary += " r=" + std::to_string(pos_val);
+
+  ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
+
+  // publish link quality (from R hex only)
+  auto it_lq = this->lq_map_.find(blind_id);
+  if (it_lq != this->lq_map_.end() && it_lq->second != nullptr) {
+    if (r_raw >= 0) {
+      float lq_val = (255.0f - static_cast<float>(r_raw)) * 100.0f / 255.0f;
+      if (lq_val < 0.0f) lq_val = 0.0f;
+      if (lq_val > 100.0f) lq_val = 100.0f;
+      it_lq->second->publish_state(lq_val);
+    }
+  }
+
+  // publish status text (Enp/Enl)
+  auto it_status = this->status_map_.find(blind_id);
+  if (it_status != this->status_map_.end() && it_status->second != nullptr) {
+    std::string status;
+    if (enp >= 0) status += "Enp=" + std::to_string(enp);
+    else if (enp_key) status += "Enp";
+    if (enl >= 0) {
+      if (!status.empty()) status += " ";
+      status += "Enl=" + std::to_string(enl);
+    } else if (enl_key) {
+      if (!status.empty()) status += " ";
+      status += "Enl";
+    }
+    if (!status.empty()) {
+      ESP_LOGD(TAG, "Publishing status for id='%s' -> %s", blind_id.c_str(), status.c_str());
+      it_status->second->publish_state(status);
+    }
+  }
+
+  // update cover position if present
+  if (pos_val >= 0) {
+    ARCBlind *b = this->find_blind_by_id(blind_id);
+    if (b != nullptr) {
+      ESP_LOGD(TAG, "Publishing raw position %d to blind '%s'", pos_val, blind_id.c_str());
+      b->publish_raw_position(pos_val);
+    } else {
+      ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
+    }
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -280,7 +388,7 @@ void ARCBlind::setup() {
 void ARCBlind::clear_startup_guard() {
   if (!this->ignore_control_) return;
   this->ignore_control_ = false;
-  ESP_LOGD(TAG, "Startup guard cleared for '%s'", this->blind_id_.c_str());
+  ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->blind_id_.c_str());
 }
 
 void ARCBlind::publish_raw_position(int device_pos) {
