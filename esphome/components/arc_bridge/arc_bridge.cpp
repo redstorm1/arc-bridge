@@ -192,7 +192,9 @@ void ARCBlind::setup() {
 }
 
 void ARCBlind::set_name(const std::string &name) {
-  (void)name;
+  // store the name in the instance so the c_str() pointer remains valid
+  this->name_ = name;
+  cover::Cover::set_name(this->name_.c_str());
 }
 
 void ARCBlind::publish_position(float position) {
