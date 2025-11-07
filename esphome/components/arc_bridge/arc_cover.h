@@ -9,19 +9,15 @@ class ARCBridgeComponent;  // forward declare
 
 class ARCCover : public cover::Cover, public Component {
  public:
-  // link to parent bridge
   void set_bridge(ARCBridgeComponent *bridge) { this->bridge_ = bridge; }
 
-  // assign blind identifier (e.g. "USZ")
   void set_blind_id(const std::string &id) { this->blind_id_ = id; }
+  const std::string &get_blind_id() const { return this->blind_id_; }
 
-  // store whether HA <-> device mapping should be inverted
   void set_invert_position(bool invert) { this->invert_position_ = invert; }
 
-  // called by bridge to update position
   void publish_raw_position(int device_pos);
 
-  // cover interface
   cover::CoverTraits get_traits() override;
   void control(const cover::CoverCall &call) override;
 

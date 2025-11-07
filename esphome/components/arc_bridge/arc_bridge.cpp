@@ -46,7 +46,7 @@ void ARCBridgeComponent::loop() {
     this->last_query_millis_ = millis();
     if (this->query_index_ >= covers_.size()) this->query_index_ = 0;
     ARCCover *cvr = covers_[query_index_];
-    if (cvr != nullptr) this->send_query(cvr->get_id());
+    if (cvr != nullptr) this->send_query(cvr->get_blind_id());
     this->query_index_ = (this->query_index_ + 1) % covers_.size();
   }
 }
