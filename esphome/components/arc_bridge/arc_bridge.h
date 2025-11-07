@@ -58,12 +58,11 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
 class ARCBlind : public cover::Cover, public Component {
  public:
   void set_blind_id(const std::string &id) { blind_id_ = id; }
-  void set_name(const std::string &name) { name_ = name; }
+  void set_name(const std::string &name) { cover::Cover::set_name(name); name_ = name; }
   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
 
   // lifecycle
   void setup() override;
-
   // publish a position received from the bridge (0.0..1.0 HA semantics)
   void publish_position(float position);
 

@@ -206,8 +206,9 @@ void ARCBridgeComponent::send_simple_command_(const std::string &blind_id, char 
 
 // ARCBlind methods
 void ARCBlind::setup() {
-  // allow a short window during setup where HA/restore won't trigger control
-  this->ignore_control_ = false;
+  // keep ignore_control_ true until we receive a real position from the bridge
+  // this avoids acting on HA restore/optimistic commands on startup.
+  // leave ignore_control_ as-is here; it will be cleared in publish_position()
 }
 
 void ARCBlind::publish_position(float position) {
@@ -215,17 +216,23 @@ void ARCBlind::publish_position(float position) {
   this->last_published_position_ = position;
   // publish_state(float) exists in Cover base; call it to update UI without sending commands
   this->publish_state(position);
+
+  // clear the startup guard when we receive the first real position
+  if (this->ignore_control_) {
+    this->ignore_control_ = false;
+    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->get_name().c_str());
+  }
 }
 
 void ARCBlind::control(const cover::CoverCall &call) {
   if (this->parent_ == nullptr) {
-    ESP_LOGW(TAG, "Blind %s has no parent ARC bridge", this->blind_id_.c_str());
+    ESP_LOGW(TAG, "Blind has no parent ARC bridge");
     return;
   }
 
   // ignore early control calls during init to avoid unwanted startup moves
   if (this->ignore_control_) {
-    ESP_LOGD(TAG, "Ignoring control for %s during init", this->blind_id_.c_str());
+    ESP_LOGD(TAG, "Ignoring control for %s during init", this->get_name().c_str());
     return;
   }
 
