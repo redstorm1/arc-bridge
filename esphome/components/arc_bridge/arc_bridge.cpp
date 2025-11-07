@@ -1,119 +1,108 @@
 #include "arc_bridge.h"
 
-#include <cmath>
-#include <cstdio>
+#include <Arduino.h>   // millis()
+#include <cctype>      // std::isalnum
+#include <cstdio>      // snprintf
+#include <cstdlib>     // strtol
 #include <regex>
-#include <cstdlib>
+#include <string>
 
 #include "esphome/core/log.h"
-#include <Arduino.h> // for millis()
 
 namespace esphome {
 namespace arc_bridge {
 
 static const char *const TAG = "arc_bridge";
-static const uint32_t STARTUP_GUARD_MS = 10 * 1000; // 10s
+
+// ───────────────────────────────────────────────────────────────────────────────
+// ARCBridgeComponent
+// ───────────────────────────────────────────────────────────────────────────────
 
 void ARCBridgeComponent::setup() {
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
-  ESP_LOGD(TAG, "ARCBridgeComponent setup, startup guard active for %ums", STARTUP_GUARD_MS);
+  ESP_LOGD(TAG, "ARCBridgeComponent setup; startup guard %u ms", STARTUP_GUARD_MS);
 }
 
 void ARCBridgeComponent::loop() {
-  // startup guard clearing (existing)
+  // 1) startup guard: clear ignore_control_ on blinds after grace period
   if (!this->startup_guard_cleared_) {
-    uint32_t now = millis();
+    const uint32_t now = millis();
     if (now - this->boot_millis_ >= STARTUP_GUARD_MS) {
-      ESP_LOGD(TAG, "Startup guard timeout elapsed - clearing ignore_control_ for all blinds");
       for (auto *b : this->blinds_) {
-        if (b == nullptr) continue;
-        b->clear_startup_guard();
+        if (b) b->clear_startup_guard();
       }
       this->startup_guard_cleared_ = true;
+      ESP_LOGD(TAG, "Startup guard cleared for all blinds");
     }
   }
 
-  // --- UART read handling: assemble ';' terminated frames ---
+  // 2) UART: accumulate bytes; extract '!'...' ;' framed messages
   while (this->available()) {
-    int c = this->read();
+    const int c = this->read();
     if (c < 0) break;
     this->rx_buffer_.push_back(static_cast<char>(c));
-    // try to extract complete frames: find '!' then following ';'
+
+    // find start '!' and terminator ';'
     size_t start = this->rx_buffer_.find('!');
-    if (start != std::string::npos) {
-      size_t term = this->rx_buffer_.find(';', start);
-      if (term != std::string::npos) {
-        std::string frame = this->rx_buffer_.substr(start, term - start + 1);
-        // erase up to and including the terminator
-        this->rx_buffer_.erase(0, term + 1);
-        this->handle_incoming_frame(frame);
-        // continue while loop — there may be more frames in buffer
-      } else {
-        // no terminator yet, keep waiting for more bytes
-        // but trim leading garbage before first '!' to avoid unbounded growth
-        if (start > 0) this->rx_buffer_.erase(0, start);
-        break;
-      }
-    } else {
-      // no start char yet, drop data before first '!' if buffer grows
+    if (start == std::string::npos) {
+      // avoid runaway buffer pre-start
       if (this->rx_buffer_.size() > 256) this->rx_buffer_.clear();
       break;
     }
-  }
 
-  // --- Periodic position queries (round-robin) ---
-  uint32_t now_q = millis();
-  if (now_q - this->last_query_millis_ >= this->QUERY_INTERVAL_MS) {
-    this->last_query_millis_ = now_q;
-    if (!this->blinds_.empty()) {
-      // ensure index valid
-      if (this->query_index_ >= this->blinds_.size()) this->query_index_ = 0;
-      ARCBlind *b = this->blinds_[this->query_index_];
-      if (b != nullptr) {
-        ESP_LOGD(TAG, "Periodic position query -> id='%s'", b->get_blind_id().c_str());
-        this->send_position_query(b->get_blind_id());
-      }
-      this->query_index_ = (this->query_index_ + 1) % (this->blinds_.empty() ? 1 : this->blinds_.size());
+    size_t term = this->rx_buffer_.find(';', start);
+    if (term == std::string::npos) {
+      // trim garbage before '!' and wait for more
+      if (start > 0) this->rx_buffer_.erase(0, start);
+      break;
     }
-  }
-}
 
-// allow forcing an immediate query (callable from codegen if desired)
-void ARCBridgeComponent::request_position_now(const std::string &blind_id) {
-  this->send_position_query(blind_id);
+    // full frame ready
+    std::string frame = this->rx_buffer_.substr(start, term - start + 1);
+    this->rx_buffer_.erase(0, term + 1);
+    this->handle_incoming_frame(frame);
+  }
+
+  // 3) periodic round-robin position queries
+  const uint32_t now_q = millis();
+  if (now_q - this->last_query_millis_ >= QUERY_INTERVAL_MS && !this->blinds_.empty()) {
+    this->last_query_millis_ = now_q;
+    if (this->query_index_ >= this->blinds_.size()) this->query_index_ = 0;
+    ARCBlind *b = this->blinds_[this->query_index_];
+    if (b != nullptr) {
+      ESP_LOGD(TAG, "Periodic position query -> id='%s'", b->get_blind_id().c_str());
+      this->send_position_query(b->get_blind_id());
+    }
+    this->query_index_ = (this->query_index_ + 1) % this->blinds_.size();
+  }
 }
 
 void ARCBridgeComponent::add_blind(ARCBlind *blind) {
-  if (blind == nullptr)
-    return;
-
-  ESP_LOGD(TAG, "add_blind(): registering blind object (id='%s')",
-           blind->get_blind_id().c_str());
+  if (!blind) return;
   blind->set_parent(this);
   this->blinds_.push_back(blind);
-}
-
-void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
-  ESP_LOGD(TAG, "map_lq_sensor(): mapping lq sensor for id='%s'", id.c_str());
-  lq_map_[id] = s;
-}
-
-void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
-  ESP_LOGD(TAG, "map_status_sensor(): mapping status sensor for id='%s'", id.c_str());
-  status_map_[id] = s;
+  ESP_LOGD(TAG, "Registered blind id='%s'", blind->get_blind_id().c_str());
 }
 
 ARCBlind *ARCBridgeComponent::find_blind_by_id(const std::string &id) {
   for (auto *b : this->blinds_) {
-    if (b == nullptr) continue;
-    ESP_LOGD(TAG, "find_blind_by_id(): checking blind id='%s' against '%s'",
-             b->get_blind_id().c_str(), id.c_str());
-    if (b->get_blind_id() == id)
-      return b;
+    if (b && b->get_blind_id() == id) return b;
   }
   return nullptr;
 }
+
+void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
+  lq_map_[id] = s;
+  ESP_LOGD(TAG, "Mapped link quality sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
+  status_map_[id] = s;
+  ESP_LOGD(TAG, "Mapped status text sensor for id='%s'", id.c_str());
+}
+
+// ── Commands ───────────────────────────────────────────────────────────────────
 
 void ARCBridgeComponent::send_simple_command_(const std::string &blind_id, char command,
                                               const std::string &payload) {
@@ -130,11 +119,9 @@ void ARCBridgeComponent::send_simple_command_(const std::string &blind_id, char 
 }
 
 void ARCBridgeComponent::send_move_command(const std::string &blind_id, uint8_t percent) {
-  if (percent > 100)
-    percent = 100;
-
+  if (percent > 100) percent = 100;
   char payload[4] = {0};
-  std::snprintf(payload, sizeof(payload), "%03u", static_cast<unsigned int>(percent));
+  std::snprintf(payload, sizeof(payload), "%03u", static_cast<unsigned>(percent));
   this->send_simple_command_(blind_id, 'm', payload);
 }
 
@@ -151,205 +138,194 @@ void ARCBridgeComponent::send_stop_command(const std::string &blind_id) {
 }
 
 void ARCBridgeComponent::send_position_query(const std::string &blind_id) {
-  // send "!IDr?;"
+  // !IDr?;
   std::string frame;
-  frame.reserve(1 + blind_id.size() + 2 + 1);
+  frame.reserve(1 + blind_id.size() + 3);
   frame.push_back('!');
   frame += blind_id;
   frame.push_back('r');
   frame.push_back('?');
   frame.push_back(';');
-
   ESP_LOGD(TAG, "TX (pos query) -> %s", frame.c_str());
   this->write_str(frame.c_str());
 }
 
-void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
-  // log raw frame
-  ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
-
-  // frame expected to start with '!' and end with ';'
-  if (frame.empty() || frame.front() != '!') {
-    ESP_LOGW(TAG, "Unexpected frame (no '!'): %s", frame.c_str());
-    return;
-  }
-
-  // strip leading '!' and trailing ';' if present
-  std::string body = frame.substr(1);
-  if (!body.empty() && body.back() == ';')
-    body.pop_back();
-
-  // extract blind id: device uses short uppercase IDs (e.g. "USZ","NOM","TXY").
-  // match leading 2..4 uppercase letters as id, rest is the remainder of the frame.
-  std::string blind_id;
-  std::string rest;
-  std::smatch idm;
-  std::regex re_id(R"(^([A-Z]{2,4})(.*))");
-  if (std::regex_match(body, idm, re_id) && idm.size() > 1) {
-    blind_id = idm[1].str();
-    rest = (idm.size() > 2) ? idm[2].str() : "";
-  } else {
-    // fallback: take up to first non-alnum (legacy behavior)
-    size_t i = 0;
-    while (i < body.size() && std::isalnum(static_cast<unsigned char>(body[i])))
-      ++i;
-    blind_id = body.substr(0, i);
-    rest = (i < body.size()) ? body.substr(i) : "";
-  }
-
-  // regex-based extraction for tokens like Enp=123, Enl=0, Rxx (hex), r=010 etc.
-  std::smatch m;
-  // Enp/Enl are case-insensitive
-  std::regex re_enp(R"((?:Enp)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  std::regex re_enl(R"((?:Enl)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  // Rxx is radio raw value in hex (two hex digits). Match hex pair.
-  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9A-Fa-f]{2}))");
-  // 'r' (lowercase) is the position token — match lowercase only
-  std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))");
-
-  // detect bare presence of Enp/Enl tokens (may appear without "=number")
-  std::regex re_enp_key(R"((?:Enp)\b)", std::regex::icase);
-  std::regex re_enl_key(R"((?:Enl)\b)", std::regex::icase);
-  bool enp_present_key = false;
-  bool enl_present_key = false;
-
-  int enp = -1, enl = -1, r_raw = -1, pos = -1;
-
-  if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
-    enp = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
-  }
-  if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
-    enl = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
-  }
-  // detect bare tokens if numeric parsing didn't find values
-  std::smatch mkey;
-  if (std::regex_search(rest, mkey, re_enp_key)) enp_present_key = true;
-  if (std::regex_search(rest, mkey, re_enl_key)) enl_present_key = true;
-  if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
-    pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
-  }
-  if (std::regex_search(rest, m, re_r) && m.size() > 1) {
-    // parse R as hex (raw radio value 0x00..0xFF)
-    r_raw = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 16));
-  }
-
-  // summarise parsed values for logging
-  std::string summary = "id=" + blind_id;
-  if (enp >= 0) summary += " Enp=" + std::to_string(enp);
-  if (enl >= 0) summary += " Enl=" + std::to_string(enl);
-  if (r_raw >= 0) {
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "0x%02X", r_raw);
-    summary += " R=" + std::string(buf);
-  }
-  if (pos >= 0) summary += " r=" + std::to_string(pos);
-
-  ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
-
-  // publish/update link-quality sensor using Rxx only
-  auto it_lq = this->lq_map_.find(blind_id);
-  if (it_lq != this->lq_map_.end() && it_lq->second != nullptr) {
-    float lq_val = -1.0f;
-    if (r_raw >= 0) {
-      // convert raw radio byte to percentage:
-      // LinkQuality% = 100 * (255 - Rraw) / 255
-      lq_val = (255.0f - static_cast<float>(r_raw)) * 100.0f / 255.0f;
-    }
-    if (lq_val >= 0.0f)
-      it_lq->second->publish_state(lq_val);
-  }
-
-  // publish/update status text (Enp/Enl)
-  auto it_status = this->status_map_.find(blind_id);
-  if (it_status != this->status_map_.end() && it_status->second != nullptr) {
-    std::string status;
-    // prefer numeric values when present, otherwise indicate bare token presence
-    if (enp >= 0) {
-      status += "Enp=" + std::to_string(enp);
-    } else if (enp_present_key) {
-      if (!status.empty()) status += " ";
-      status += "Enp";
-    }
-    if (enl >= 0) {
-      if (!status.empty()) status += " ";
-      status += "Enl=" + std::to_string(enl);
-    } else if (enl_present_key) {
-      if (!status.empty()) status += " ";
-      status += "Enl";
-    }
-    if (!status.empty()) {
-      ESP_LOGD(TAG, "Publishing status for id='%s' -> %s", blind_id.c_str(), status.c_str());
-      it_status->second->publish_state(status);
-    }
-  }
-
-  // update cover position if we can find a matching blind and pos is present
-  if (pos >= 0) {
-    ARCBlind *b = this->find_blind_by_id(blind_id);
-    if (b != nullptr) {
-      ESP_LOGD(TAG, "Publishing raw position %d to blind '%s'", pos, blind_id.c_str());
-      b->publish_raw_position(pos);
-    } else {
-      ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
-    }
-  }
+void ARCBridgeComponent::request_position_now(const std::string &blind_id) {
+  this->send_position_query(blind_id);
 }
 
-// ARCBlind methods
+// ── Parser ─────────────────────────────────────────────────────────────────────
+
+void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
+  ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
+  if (frame.empty() || frame.front() != '!') return;
+
+  // strip '!' and trailing ';'
+  std::string body = frame.substr(1);
+  if (!body.empty() && body.back() == ';') body.pop_back();
+
+  // ID = 2–4 uppercase letters at start
+  std::string blind_id, rest;
+  {
+    std::smatch idm;
+    std::regex re_id(R"(^([A-Z]{2,4})(.*))");
+    if (std::regex_match(body, idm, re_id)) {
+      blind_id = idm[1].str();
+      rest = idm[2].str();
+    } else {
+      // fallback: alnum prefix as id
+      size_t i = 0;
+      while (i < body.size() && std::isalnum(static_cast<unsigned char>(body[i]))) ++i;
+      blind_id = body.substr(0, i);
+      rest = (i < body.size()) ? body.substr(i) : "";
+    }
+  }
+
+  // parse tokens
+  std::smatch m;
+  // r### b### ,Rxx    (we accept any order after ID)
+  std::regex re_status(R"(r(\d{3})b(\d{3}),R([0-9A-Fa-f]{2}))");
+  std::regex re_pos_only(R"(r(\d{3}))");
+  std::regex re_rssi(R"(,R([0-9A-Fa-f]{2}))");
+
+  // errors like !IDEnl;  or !IDEnp;
+  std::regex re_en(R"(^E(n[pl])$)", std::regex::icase);     // whole rest is Enl/Enp
+  std::regex re_en_any(R"(E(n[pl]))", std::regex::icase);   // Enl/Enp anywhere
+
+  int pos = -1;
+  int tilt = -1;
+  int r_raw = -1;
+  bool have_enl = false, have_enp = false;
+
+  // full status first
+  if (std::regex_search(rest, m, re_status)) {
+    pos = std::stoi(m[1]);
+    tilt = std::stoi(m[2]);
+    r_raw = static_cast<int>(std::strtol(m[3].str().c_str(), nullptr, 16));
+  } else {
+    // partials
+    if (std::regex_search(rest, m, re_pos_only)) pos = std::stoi(m[1]);
+    if (std::regex_search(rest, m, re_rssi)) r_raw = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 16));
+
+    // error detection
+    if (std::regex_match(rest, m, re_en)) {
+      std::string code = m[1];
+      have_enl = (code == "nl" || code == "NL");
+      have_enp = (code == "np" || code == "NP");
+    } else if (std::regex_search(rest, m, re_en_any)) {
+      std::string code = m[1];
+      have_enl = have_enl || (code == "nl" || code == "NL");
+      have_enp = have_enp || (code == "np" || code == "NP");
+    }
+  }
+
+  // log summary
+  {
+    char buf[16] = {0};
+    std::string summary = "id=" + blind_id;
+    if (pos >= 0) summary += " r=" + std::to_string(pos);
+    if (tilt >= 0) summary += " b=" + std::to_string(tilt);
+    if (r_raw >= 0) { std::snprintf(buf, sizeof(buf), "0x%02X", r_raw); summary += " R=" + std::string(buf); }
+    if (have_enl) summary += " Enl";
+    if (have_enp) summary += " Enp";
+    ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
+  }
+
+  // publish outputs
+  if (r_raw >= 0) this->publish_link_quality_(blind_id, r_raw);
+  if (have_enl || have_enp) this->publish_status_(blind_id, have_enp, have_enl, -1, -1);
+  this->publish_position_if_known_(blind_id, pos);
+}
+
+void ARCBridgeComponent::publish_link_quality_(const std::string &id, int r_raw_hex) {
+  auto it = this->lq_map_.find(id);
+  if (it == this->lq_map_.end() || it->second == nullptr) return;
+  // LinkQuality% = 100 * (255 - raw) / 255  (inverse of RSSI)
+  float pct = (255.0f - static_cast<float>(r_raw_hex)) * 100.0f / 255.0f;
+  if (pct < 0.0f) pct = 0.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  it->second->publish_state(pct);
+}
+
+void ARCBridgeComponent::publish_status_(const std::string &id, bool have_enp, bool have_enl,
+                                         int /*enp_val*/, int /*enl_val*/) {
+  auto it = this->status_map_.find(id);
+  if (it == this->status_map_.end() || it->second == nullptr) return;
+
+  std::string status = "OK";
+  if (have_enp) status = "Not Paired";
+  else if (have_enl) status = "Not Listening";
+
+  it->second->publish_state(status);
+}
+
+void ARCBridgeComponent::publish_position_if_known_(const std::string &id, int pos) {
+  if (pos < 0) return;
+  ARCBlind *b = this->find_blind_by_id(id);
+  if (!b) {
+    ESP_LOGW(TAG, "No blind registered for id='%s' (position %d ignored)", id.c_str(), pos);
+    return;
+  }
+  b->publish_raw_position(pos);
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// ARCBlind (cover)
+// ───────────────────────────────────────────────────────────────────────────────
+
 void ARCBlind::setup() {
-  // Report as a shade device and ensure position support is declared via get_traits()
-  this->set_device_class("shade");
+  // nothing special required; traits declare position support
 }
 
 void ARCBlind::clear_startup_guard() {
-  if (!this->ignore_control_)
-    return;
+  if (!this->ignore_control_) return;
   this->ignore_control_ = false;
-  ESP_LOGD(TAG, "clear_startup_guard(): cleared ignore_control_ for blind '%s'", this->blind_id_.c_str());
+  ESP_LOGD(TAG, "Startup guard cleared for '%s'", this->blind_id_.c_str());
 }
 
 void ARCBlind::publish_raw_position(int device_pos) {
   if (device_pos < 0) device_pos = 0;
   if (device_pos > 100) device_pos = 100;
-  float ha_pos;
-  // device_pos semantics may differ per install; invert_position_ flips mapping
+
+  float ha_pos = 0.0f;
+  // device: 0=open, 100=closed
   if (this->invert_position_) {
-    // device: 0 = closed, 100 = open => HA pos = device_pos / 100
-    ha_pos = static_cast<float>(device_pos) / 100.0f;
+    // invert mapping if user prefers device semantics
+    ha_pos = static_cast<float>(device_pos) / 100.0f;         // 0..1 open
   } else {
-    // device: 0 = open, 100 = closed => HA pos = 1.0 - device_pos/100
+    // default HA semantics: 1=open, 0=closed
     ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
   }
   this->publish_position(ha_pos);
 }
 
 void ARCBlind::set_name(const std::string &name) {
-  // store the name in the instance so the c_str() pointer remains valid
   this->name_ = name;
   cover::Cover::set_name(this->name_.c_str());
 }
 
 void ARCBlind::publish_position(float position) {
-  // store last and publish state to the cover (position 0..1)
+  if (position < 0.0f) position = 0.0f;
+  if (position > 1.0f) position = 1.0f;
+
   this->last_published_position_ = position;
   this->publish_state(position);
 
-  // clear the startup guard when we receive the first real position
+  // first valid position received → controls safe to accept
   if (this->ignore_control_) {
     this->ignore_control_ = false;
-    ESP_LOGD(TAG, "Cleared ignore_control_ for blind '%s' after receiving position", this->blind_id_.c_str());
+    ESP_LOGD(TAG, "Control enabled for '%s' after first position", this->blind_id_.c_str());
   }
 }
 
 void ARCBlind::control(const cover::CoverCall &call) {
-  if (this->parent_ == nullptr) {
-    ESP_LOGW(TAG, "Blind has no parent ARC bridge");
+  if (!this->parent_) {
+    ESP_LOGW(TAG, "Blind '%s' has no parent ARC bridge", this->blind_id_.c_str());
     return;
   }
 
-  // ignore early control calls during init to avoid unwanted startup moves
   if (this->ignore_control_) {
-    ESP_LOGD(TAG, "Ignoring control for %s during init", this->blind_id_.c_str());
+    ESP_LOGD(TAG, "Ignoring control for '%s' during startup guard", this->blind_id_.c_str());
     return;
   }
 
@@ -359,33 +335,23 @@ void ARCBlind::control(const cover::CoverCall &call) {
   }
 
   if (call.get_position().has_value()) {
-    float position = *call.get_position();
-    if (position < 0.0f)
-      position = 0.0f;
-    if (position > 1.0f)
-      position = 1.0f;
+    float p = *call.get_position();
+    if (p < 0.0f) p = 0.0f;
+    if (p > 1.0f) p = 1.0f;
 
-    if (position >= 0.999f) {
-      this->parent_->send_open_command(this->blind_id_);
-      return;
-    }
-    if (position <= 0.001f) {
-      this->parent_->send_close_command(this->blind_id_);
-      return;
-    }
-
-    // ARC protocol: 0 = open, 100 = closed. HA/ESPHome uses 1=open, 0=closed.
-    uint8_t arc_percent = static_cast<uint8_t>(std::round((1.0f - position) * 100.0f));
+    // HA 1=open, 0=closed  ↔  device 0=open, 100=closed
+    // we keep default (invert_position_=false) mapping that users expect in HA UI
+    uint8_t arc_percent = static_cast<uint8_t>(std::round((1.0f - p) * 100.0f));
+    if (arc_percent >= 100) { this->parent_->send_close_command(this->blind_id_); return; }
+    if (arc_percent <= 0)   { this->parent_->send_open_command(this->blind_id_);  return; }
     this->parent_->send_move_command(this->blind_id_, arc_percent);
     return;
   }
+
+  // (tilt support can be added later)
 }
 
-// add implementation for set_invert_position
-void ARCBlind::set_invert_position(bool invert) {
-  this->invert_position_ = invert;
-}
+void ARCBlind::set_invert_position(bool invert) { this->invert_position_ = invert; }
 
 }  // namespace arc_bridge
 }  // namespace esphome
-
