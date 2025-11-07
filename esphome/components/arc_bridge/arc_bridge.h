@@ -54,25 +54,25 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
 // --------------------------------------------------------------------
 class ARCBlind : public cover::Cover, public Component {
  public:
-   void set_blind_id(const std::string &id) { blind_id_ = id; }
-   const std::string &get_blind_id() const { return blind_id_; }
-   void set_name(const std::string &name);
-   void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
+  void set_blind_id(const std::string &id) { blind_id_ = id; }
+  const std::string &get_blind_id() const { return blind_id_; }
+  void set_name(const std::string &name);
+  void set_parent(ARCBridgeComponent *parent) { parent_ = parent; }
 
-+  // allow configuring position inversion (device 0=open vs 0=closed)
-+  void set_invert_position(bool invert) { invert_position_ = invert; }
-+
-+  // accept raw device position (0..100) and convert/publish to HA semantics
-+  void publish_raw_position(int device_pos);
+  // allow configuring position inversion (device 0=open vs 0=closed)
+  void set_invert_position(bool invert);
 
-   // lifecycle
-   void setup() override;
+  // accept raw device position (0..100) and convert/publish to HA semantics
+  void publish_raw_position(int device_pos);
 
-   // publish a position received from the bridge (0.0..1.0 HA semantics)
-   void publish_position(float position);
+  // lifecycle
+  void setup() override;
 
-   // clear the startup ignore guard (called by bridge timeout or on first pos)
-   void clear_startup_guard();
+  // publish a position received from the bridge (0.0..1.0 HA semantics)
+  void publish_position(float position);
+
+  // clear the startup ignore guard (called by bridge timeout or on first pos)
+  void clear_startup_guard();
 
  protected:
   cover::CoverTraits get_traits() override {
@@ -85,13 +85,13 @@ class ARCBlind : public cover::Cover, public Component {
   void control(const cover::CoverCall &call) override;
 
  private:
-   ARCBridgeComponent *parent_{nullptr};
-   std::string blind_id_;
-   std::string name_;
-   bool ignore_control_{true};
-+  bool invert_position_{false};
-   float last_published_position_{NAN};
- };
+  ARCBridgeComponent *parent_{nullptr};
+  std::string blind_id_;
+  std::string name_;
+  bool ignore_control_{true};
+  bool invert_position_{false};
+  float last_published_position_{NAN};
+};
 
 }  // namespace arc_bridge
 }  // namespace esphome

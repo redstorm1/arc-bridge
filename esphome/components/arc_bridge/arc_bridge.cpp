@@ -299,6 +299,11 @@ void ARCBlind::control(const cover::CoverCall &call) {
   }
 }
 
+// add implementation for set_invert_position
+void ARCBlind::set_invert_position(bool invert) {
+  this->invert_position_ = invert;
+}
+
 }  // namespace arc_bridge
 }  // namespace esphome
 
