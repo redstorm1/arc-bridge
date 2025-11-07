@@ -11,7 +11,7 @@ class ARCBridgeComponent;
 class ARCCover : public cover::Cover {
  public:
   void set_bridge(ARCBridgeComponent *bridge) { bridge_ = bridge; }
-  void set_id(const std::string &id) { id_ = id; }
+  void set_blind_id(const std::string &id) { this->blind_id_ = id; }
   const std::string &get_id() const { return id_; }
 
   cover::CoverTraits get_traits() override;
