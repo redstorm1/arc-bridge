@@ -39,7 +39,7 @@ void ARCCover::control(const cover::CoverCall &call) {
   }
 
   if (call.get_stop()) {
-    this->bridge_->send_stop_command(this->blind_id_);
+    this->bridge_->send_stop(this->blind_id_);
     return;
   }
 
@@ -58,11 +58,11 @@ void ARCCover::control(const cover::CoverCall &call) {
     ESP_LOGD(TAG, "[%s] control pos=%.2f -> arc_percent=%d", this->blind_id_.c_str(), p, arc_percent);
 
     if (arc_percent >= 100)
-      this->bridge_->send_close_command(this->blind_id_);
+      this->bridge_->send_close(this->blind_id_);
     else if (arc_percent <= 0)
-      this->bridge_->send_open_command(this->blind_id_);
+      this->bridge_->send_open(this->blind_id_);
     else
-      this->bridge_->send_move_command(this->blind_id_, arc_percent);
+      this->bridge_->send_move(this->blind_id_, arc_percent);
   }
 }
 
