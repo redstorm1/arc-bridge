@@ -49,16 +49,16 @@ async def to_code(config):
         await cover.register_cover(blind, blind_cfg)
 
         cg.add(blind.set_blind_id(blind_cfg[CONF_BLIND_ID]))
-        cg.add(blind.set_name(blind_cfg[CONF_NAME]))
+        # register blind with bridge so C++ can find it by id
         cg.add(var.add_blind(blind))
 
+        # optional: map link-quality and status sensors so bridge can publish into them
         if CONF_LINK_QUALITY in blind_cfg:
-            lq_sensor = await sensor.new_sensor(blind_cfg[CONF_LINK_QUALITY])
-            cg.add(var.map_lq_sensor(blind_cfg[CONF_BLIND_ID], lq_sensor))
-
+            lq = await sensor.new_sensor(blind_cfg[CONF_LINK_QUALITY])
+            cg.add(var.map_lq_sensor(blind_cfg[CONF_BLIND_ID], lq))
         if CONF_STATUS in blind_cfg:
-            status_sensor = await text_sensor.new_text_sensor(blind_cfg[CONF_STATUS])
-            cg.add(var.map_status_sensor(blind_cfg[CONF_BLIND_ID], status_sensor))
+            st = await text_sensor.new_text_sensor(blind_cfg[CONF_STATUS])
+            cg.add(var.map_status_sensor(blind_cfg[CONF_BLIND_ID], st))
 
 CONFIG_SCHEMA = CONFIG_SCHEMA
 to_code = to_code
