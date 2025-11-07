@@ -10,6 +10,7 @@ CONF_BLINDS = "blinds"
 CONF_BLIND_ID = "blind_id"
 CONF_LINK_QUALITY = "link_quality"
 CONF_STATUS = "status"
+CONF_INVERT_POSITION = "invert_position"
 
 arc_bridge_ns = cg.esphome_ns.namespace("arc_bridge")
 ARCBridgeComponent = arc_bridge_ns.class_("ARCBridgeComponent", cg.Component, uart.UARTDevice)
@@ -20,6 +21,7 @@ BLIND_SCHEMA = cover.cover_schema(ARCBlind).extend(
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Required(CONF_NAME): cv.string,
         cv.GenerateID(): cv.declare_id(ARCBlind),
+        cv.Optional(CONF_INVERT_POSITION, default=False): cv.boolean,
         cv.Optional(CONF_LINK_QUALITY): sensor.sensor_schema(
             unit_of_measurement="%",
             icon="mdi:signal",
@@ -49,6 +51,8 @@ async def to_code(config):
         await cover.register_cover(blind, blind_cfg)
 
         cg.add(blind.set_blind_id(blind_cfg[CONF_BLIND_ID]))
+        # set invert flag on C++ blind (false by default)
+        cg.add(blind.set_invert_position(blind_cfg[CONF_INVERT_POSITION]))
         # register blind with bridge so C++ can find it by id
         cg.add(var.add_blind(blind))
 

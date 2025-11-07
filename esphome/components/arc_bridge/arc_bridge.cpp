@@ -115,6 +115,9 @@ void ARCBridgeComponent::send_position_query(const std::string &blind_id) {
 }
 
 void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
+  // log raw frame
+  ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
+
   // frame expected to start with '!' and end with ';'
   if (frame.empty() || frame.front() != '!') {
     ESP_LOGW(TAG, "Unexpected frame (no '!'): %s", frame.c_str());
@@ -159,12 +162,15 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
     pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
 
-  ESP_LOGD(TAG, "RX <- id=%s rest=\"%s\"", blind_id.c_str(), rest.c_str());
-  if (enp >= 0) ESP_LOGD(TAG, "  Enp=%d", enp);
-  if (enl >= 0) ESP_LOGD(TAG, "  Enl=%d", enl);
-  if (r >= 0) ESP_LOGD(TAG, "  R=%d", r);
-  if (ra >= 0) ESP_LOGD(TAG, "  RA=%d", ra);
-  if (pos >= 0) ESP_LOGD(TAG, "  r(pos)=%d", pos);
+  // summarise parsed values for logging
+  std::string summary = "id=" + blind_id;
+  if (enp >= 0) summary += " Enp=" + std::to_string(enp);
+  if (enl >= 0) summary += " Enl=" + std::to_string(enl);
+  if (r >= 0) summary += " R=" + std::to_string(r);
+  if (ra >= 0) summary += " RA=" + std::to_string(ra);
+  if (pos >= 0) summary += " r=" + std::to_string(pos);
+
+  ESP_LOGD(TAG, "RX parsed -> %s ; rest=\"%s\"", summary.c_str(), rest.c_str());
 
   // publish/update link-quality sensor (prefer RA then R)
   auto it_lq = this->lq_map_.find(blind_id);
@@ -196,12 +202,11 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
 
   // update cover position if we can find a matching blind and pos is present
   if (pos >= 0) {
-    // pos from device: 0 = open, 100 = closed -> HA/ESPhome uses 1.0 = open, 0.0 = closed
-    float ha_pos = 1.0f - (static_cast<float>(pos) / 100.0f);
+    // pass raw device position (0..100) to the blind object which will convert
     ARCBlind *b = this->find_blind_by_id(blind_id);
     if (b != nullptr) {
-      ESP_LOGD(TAG, "Publishing position %.3f to blind '%s'", ha_pos, blind_id.c_str());
-      b->publish_position(ha_pos);
+      ESP_LOGD(TAG, "Publishing raw position %d to blind '%s'", pos, blind_id.c_str());
+      b->publish_raw_position(pos);
     } else {
       ESP_LOGW(TAG, "No ARCBlind registered for id='%s' - position ignored", blind_id.c_str());
     }
@@ -219,6 +224,21 @@ void ARCBlind::clear_startup_guard() {
     return;
   this->ignore_control_ = false;
   ESP_LOGD(TAG, "clear_startup_guard(): cleared ignore_control_ for blind '%s'", this->blind_id_.c_str());
+}
+
+void ARCBlind::publish_raw_position(int device_pos) {
+  if (device_pos < 0) device_pos = 0;
+  if (device_pos > 100) device_pos = 100;
+  float ha_pos;
+  // device_pos semantics may differ per install; invert_position_ flips mapping
+  if (this->invert_position_) {
+    // device: 0 = closed, 100 = open => HA pos = device_pos / 100
+    ha_pos = static_cast<float>(device_pos) / 100.0f;
+  } else {
+    // device: 0 = open, 100 = closed => HA pos = 1.0 - device_pos/100
+    ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
+  }
+  this->publish_position(ha_pos);
 }
 
 void ARCBlind::set_name(const std::string &name) {
