@@ -106,8 +106,8 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   // publish updates
   for (auto *cv : covers_) {
-    if (cv && cv->get_id() == id) {
-      if (pos >= 0) cv->publish_raw(pos);
+    if (cv && cv->get_blind_id() == id) {
+      if (pos >= 0) cv->publish_raw_position(pos);
       break;
     }
   }
