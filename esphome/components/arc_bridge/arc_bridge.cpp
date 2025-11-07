@@ -256,4 +256,6 @@ void ARCBlind::control(const cover::CoverCall &call) {
     return;
   }
 }
+}  // namespace arc_bridge
+}  // namespace esphome
 
