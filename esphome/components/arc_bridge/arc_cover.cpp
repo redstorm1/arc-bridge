@@ -19,17 +19,13 @@ void ARCCover::publish_raw_position(int device_pos) {
   if (device_pos < 0) device_pos = 0;
   if (device_pos > 100) device_pos = 100;
 
-  float ha_pos;
-  // ARC uses 0=open, 100=closed
-  if (this->invert_position_) {
-    ha_pos = static_cast<float>(device_pos) / 100.0f;
-  } else {
-    ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
-  }
+  // ARC: 0=open, 100=closed  →  HA: 1.0=open, 0.0=closed
+  float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
 
-  ESP_LOGD(TAG, "[%s] device_pos=%d -> ha_pos=%.2f (invert=%d)",
-           this->blind_id_.c_str(), device_pos, ha_pos, this->invert_position_);
-  this->publish_state(ha_pos);
+  ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f", this->blind_id_.c_str(), device_pos, ha_pos);
+
+  this->position = ha_pos;   // set the internal field ESPHome uses
+  this->publish_state();     // publish using the internal field
 }
 
 void ARCCover::control(const cover::CoverCall &call) {
