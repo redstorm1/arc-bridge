@@ -279,8 +279,8 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
 
 // ARCBlind methods
 void ARCBlind::setup() {
-  // keep ignore_control_ true until we receive a real position from the bridge
-  // to avoid acting on HA restore/optimistic commands on startup.
+  // Report as a shade device and ensure position support is declared via get_traits()
+  this->set_device_class("shade");
 }
 
 void ARCBlind::clear_startup_guard() {
