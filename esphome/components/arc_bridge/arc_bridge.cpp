@@ -199,28 +199,32 @@ void ARCBridgeComponent::handle_incoming_frame(const std::string &frame) {
 
   // regex-based extraction for tokens like Enp=123, Enl=0, R=45, RA=67, r=010 etc.
   std::smatch m;
+  // Enp/Enl are case-insensitive
   std::regex re_enp(R"((?:Enp)\s*[:=]?\s*([0-9]+))", std::regex::icase);
   std::regex re_enl(R"((?:Enl)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  std::regex re_ra(R"((?:RA)\s*[:=]?\s*([0-9]+))", std::regex::icase);
-  std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))", std::regex::icase);
+  // RA (upper-case) and R (upper-case) are link-quality tokens — match uppercase only
+  std::regex re_ra(R"((?:RA)\s*[:=]?\s*([0-9]+))");
+  std::regex re_r(R"((?:\bR)\s*[:=]?\s*([0-9]+))");
+  // 'r' (lowercase) is the position token — match lowercase only
+  std::regex re_pos(R"((?:\br)\s*[:=]?\s*([0-9]+))");
 
   int enp = -1, enl = -1, r = -1, ra = -1, pos = -1;
 
+  // Prefer RA (upper-case) and parse position 'r' (lowercase) specifically.
   if (std::regex_search(rest, m, re_enp) && m.size() > 1) {
     enp = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_enl) && m.size() > 1) {
     enl = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
-  if (std::regex_search(rest, m, re_r) && m.size() > 1) {
-    r = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
-  }
   if (std::regex_search(rest, m, re_ra) && m.size() > 1) {
     ra = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
   if (std::regex_search(rest, m, re_pos) && m.size() > 1) {
     pos = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
+  }
+  if (std::regex_search(rest, m, re_r) && m.size() > 1) {
+    r = static_cast<int>(std::strtol(m[1].str().c_str(), nullptr, 10));
   }
 
   // summarise parsed values for logging
