@@ -83,11 +83,12 @@ void ARCBridgeComponent::handle_frame(const std::string &frame) {
 
 void ARCBridgeComponent::parse_frame(const std::string &frame) {
   // strip leading ! and trailing ;
+  if (frame.size() < 5) return;
   std::string body = frame.substr(1, frame.size() - 2);
-  size_t i = 0;
-  while (i < body.size() && std::isupper(body[i])) ++i;
-  std::string id = body.substr(0, i);
-  std::string rest = (i < body.size()) ? body.substr(i) : "";
+
+  // Blind ID is always the first 3 uppercase characters
+  std::string id = body.substr(0, 3);
+  std::string rest = (body.size() > 3) ? body.substr(3) : "";
 
   int pos = -1;
   int rssi = -1;
@@ -118,16 +119,12 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     if (cv->get_blind_id() == id) {
       ESP_LOGI(TAG, "Matched cover id='%s' pos=%d R=%d", id.c_str(), pos, rssi);
 
-      // 1️⃣ normal position update
       if (pos >= 0) {
         cv->publish_raw_position(pos);
-      }
-      // 2️⃣ mark unavailable if only Enp/Enl
-      else if (enp || enl) {
+      } else if (enp || enl) {
         cv->publish_unavailable();
       }
 
-      // 3️⃣ link-quality update (convert 0–255 → 0–100%)
       if (rssi >= 0) {
         float pct = (rssi / 255.0f) * 100.0f;
         cv->publish_link_quality(pct);
@@ -136,6 +133,9 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       break;
     }
   }
+
+  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
+}
 
   ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
 }
