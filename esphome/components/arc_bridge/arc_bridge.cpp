@@ -81,52 +81,56 @@ void ARCBridgeComponent::handle_frame(const std::string &frame) {
   parse_frame(frame);
 }
 
+// Helper: convert raw R value to dBm and % quality
+static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
+  // Observed practical range: 0x50 (80) ≈ -100 dBm  →  0xA8 (168) ≈ -40 dBm
+  if (raw < 0x50) raw = 0x50;
+  if (raw > 0xA8) raw = 0xA8;
+
+  dbm = -100.0f + ((raw - 0x50) / float(0xA8 - 0x50)) * 60.0f;
+  pct = ((dbm + 100.0f) / 60.0f) * 100.0f;
+
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+}
+
+// -------------------------------------------------------------------------
+// Main parser
 void ARCBridgeComponent::parse_frame(const std::string &frame) {
   if (frame.size() < 5) return;
   std::string body = frame.substr(1, frame.size() - 2);
 
-  // Blind ID = first 3 uppercase letters
   std::string id = body.substr(0, 3);
   std::string rest = (body.size() > 3) ? body.substr(3) : "";
 
   int pos = -1;
-  int rssi = -1;
+  float dbm = NAN;
+  float pct = NAN;
   bool enp = false;
   bool enl = false;
 
-  // position r###
+  // parse position r###
   size_t rpos = rest.find('r');
   if (rpos != std::string::npos)
     pos = std::atoi(rest.c_str() + rpos + 1);
 
-  // RSSI R##
+  // parse RSSI R##
   size_t Rpos = rest.find('R');
   if (Rpos != std::string::npos && Rpos + 2 <= rest.size()) {
-    // grab exactly two hex digits
     std::string hex_str = rest.substr(Rpos + 1, 2);
-    int hex_val = std::strtol(hex_str.c_str(), nullptr, 16);
-
-    // Convert to signed 8-bit
-    if (hex_val > 127)
-      rssi = hex_val - 256;
-    else
-      rssi = hex_val;
-
-    // clamp to -100..-40 dBm
-    if (rssi < -100) rssi = -100;
-    if (rssi > -40)  rssi = -40;
+    int raw_val = std::strtol(hex_str.c_str(), nullptr, 16);
+    decode_rssi(raw_val, dbm, pct);
+    ESP_LOGI(TAG, "[%s] R=%s -> %.1f dBm (%.1f%%)", id.c_str(), hex_str.c_str(), dbm, pct);
   }
 
-  // markers
-  if (rest.find("Enp") != std::string::npos) enp = true;
-  if (rest.find("Enl") != std::string::npos) enl = true;
+  // state flags
+  enp = (rest.find("Enp") != std::string::npos);
+  enl = (rest.find("Enl") != std::string::npos);
 
-  // mapped sensors
   auto it_lq = lq_map_.find(id);
   auto it_status = status_map_.find(id);
 
   if (enl) {
-    // 🔴 Lost link
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Offline");
     if (it_lq != lq_map_.end() && it_lq->second)
@@ -134,23 +138,18 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     ESP_LOGW(TAG, "[%s] Lost link -> Offline", id.c_str());
   }
   else if (enp) {
-    // ⚪ Not paired
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Not paired");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
   }
-  else if (rssi != -1) {
-    // 🟢 Online / Active
-    float pct = ((rssi + 100.0f) / 60.0f) * 100.0f;
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
+  else if (!std::isnan(pct)) {
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(pct);
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Online");
-    ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%ddBm (%.1f%%)", id.c_str(), pos, rssi, pct);
+    ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (%.1f%%)", id.c_str(), pos, dbm, pct);
   }
 
   // cover updates
@@ -167,22 +166,17 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       else if (enp || enl)
         cv->publish_unavailable();
 
-      if (rssi != -1) {
-        // reuse same scaling
-        float pct = ((rssi + 100.0f) / 60.0f) * 100.0f;
-        if (pct < 0) pct = 0;
-        if (pct > 100) pct = 100;
+      if (!std::isnan(pct))
         cv->publish_link_quality(pct);
-      } else if (enl) {
+      else if (enl)
         cv->publish_link_quality(NAN);
-      }
 
-      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%ddBm (enp=%d enl=%d)", id.c_str(), pos, rssi, enp, enl);
+      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (enp=%d enl=%d)", id.c_str(), pos, dbm, enp, enl);
       break;
     }
   }
 
-  ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%d enp=%d enl=%d", id.c_str(), pos, rssi, enp, enl);
+  ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f enp=%d enl=%d", id.c_str(), pos, dbm, enp, enl);
 }
 
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
