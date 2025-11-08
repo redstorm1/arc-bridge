@@ -127,7 +127,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
         cv->publish_unavailable();
       }
 
-      // 3️⃣ link-quality update (convert 0-255 → 0-100%)
+      // 3️⃣ link-quality update (convert 0–255 → 0–100%)
       if (rssi >= 0) {
         float pct = (rssi / 255.0f) * 100.0f;
         cv->publish_link_quality(pct);
@@ -140,29 +140,10 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
 }
 
-
-  // link quality sensor (optional)
-  if (rssi >= 0) {
-    auto it = lq_map_.find(id);
-    if (it != lq_map_.end() && it->second)
-      it->second->publish_state((255.0f - rssi) * 100.0f / 255.0f);
-  }
-
-  // status text sensor
-  auto it2 = status_map_.find(id);
-  if (it2 != status_map_.end() && it2->second) {
-    std::string status;
-    if (enp) status += "Enp ";
-    if (enl) status += "Enl";
-    if (!status.empty()) it2->second->publish_state(status);
-  }
-
-  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
-}
-
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
   lq_map_[id] = s;
 }
+
 void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
   status_map_[id] = s;
 }
