@@ -103,7 +103,13 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   size_t Rpos = rest.find('R');
   if (Rpos != std::string::npos && Rpos + 1 < rest.size()) {
     const char *s = rest.c_str() + Rpos + 1;
-    rssi = std::strtol(s, nullptr, 16);
+    int hex_val = std::strtol(s, nullptr, 16);
+
+    // If RSSI is hex-coded, convert it to signed dBm
+    if (hex_val > 127)
+      rssi = hex_val - 256;  // wrap around (e.g. 0xA7 -> -89)
+    else
+      rssi = hex_val;
   }
 
   // markers
@@ -132,12 +138,15 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   }
   else if (rssi >= 0) {
     // 🟢 Online / Active
-    float pct = (rssi / 255.0f) * 100.0f;
+    // Typical usable range: -100 dBm (bad) to -40 dBm (excellent)
+    float pct = ((rssi + 100.0f) / 60.0f) * 100.0f;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(pct);
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Online");
-    ESP_LOGD(TAG, "[%s] Online -> Link quality %.1f%%", id.c_str(), pct);
+    ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%ddBm (%.1f%%)", id.c_str(), pos, rssi, pct);
   }
 
   // cover updates
