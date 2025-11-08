@@ -137,9 +137,6 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
 }
 
-  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
-}
-
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
   lq_map_[id] = s;
 }
