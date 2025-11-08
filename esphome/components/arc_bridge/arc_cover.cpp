@@ -47,6 +47,12 @@ void ARCCover::control(const cover::CoverCall &call) {
     return;
   }
 
+  // 🛑 prevent any movement during startup guard
+  if (!this->bridge_->is_startup_guard_cleared()) {
+    ESP_LOGW(TAG, "[%s] Ignoring command during startup guard period", this->blind_id_.c_str());
+    return;
+  }
+
   if (call.get_stop()) {
     this->bridge_->send_stop(this->blind_id_);
     return;

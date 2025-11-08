@@ -13,6 +13,7 @@ class ARCCover : public cover::Cover, public Component {
   // link this cover to the parent ARC bridge
   void set_bridge(ARCBridgeComponent *bridge) { this->bridge_ = bridge; }
 
+  bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
   // blind ID, e.g. "USZ"
   void set_blind_id(const std::string &id) { this->blind_id_ = id; }
   const std::string &get_blind_id() const { return this->blind_id_; }
