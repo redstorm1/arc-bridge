@@ -113,6 +113,28 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   // publish updates to matching cover(s)
   for (auto *cv : covers_) {
+    // 🔹 Update external mapped sensors (if any)
+    if (rssi >= 0) {
+      auto it = lq_map_.find(id);
+      if (it != lq_map_.end() && it->second != nullptr) {
+        // Convert RSSI (0–255) → Link Quality (0–100%)
+        float pct = (rssi / 255.0f) * 100.0f;
+        it->second->publish_state(pct);
+        ESP_LOGD(TAG, "[%s] External link quality updated: %.1f%%", id.c_str(), pct);
+      }
+    }
+
+    if (enp || enl) {
+      auto it2 = status_map_.find(id);
+      if (it2 != status_map_.end() && it2->second != nullptr) {
+        std::string status;
+        if (enp) status += "Enp ";
+        if (enl) status += "Enl";
+        it2->second->publish_state(status);
+        ESP_LOGD(TAG, "[%s] External status updated: %s", id.c_str(), status.c_str());
+      }
+    }
+
     if (!cv) continue;
     ESP_LOGD(TAG, "Checking cover id='%s' against frame id='%s'",
              cv->get_blind_id().c_str(), id.c_str());
