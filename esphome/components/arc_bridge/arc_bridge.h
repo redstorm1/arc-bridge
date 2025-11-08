@@ -28,6 +28,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_stop(const std::string &id);
   void send_move(const std::string &id, uint8_t percent);
   void send_query(const std::string &id);
+  void send_pair_command();
 
   // sensor mapping (optional)
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);

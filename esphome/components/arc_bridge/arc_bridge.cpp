@@ -171,5 +171,11 @@ void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::T
   status_map_[id] = s;
 }
 
+void ARCBridgeComponent::send_pair_command() {
+  std::string frame = "!000&;";
+  this->write_str(frame.c_str());
+  ESP_LOGI(TAG, "TX -> %s (pairing command)", frame.c_str());
+}
+
 }  // namespace arc_bridge
 }  // namespace esphome
