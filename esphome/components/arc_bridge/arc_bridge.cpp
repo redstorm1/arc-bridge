@@ -82,7 +82,6 @@ void ARCBridgeComponent::handle_frame(const std::string &frame) {
 }
 
 void ARCBridgeComponent::parse_frame(const std::string &frame) {
-  // strip leading ! and trailing ;
   if (frame.size() < 5) return;
   std::string body = frame.substr(1, frame.size() - 2);
 
@@ -111,56 +110,60 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   if (rest.find("Enp") != std::string::npos) enp = true;
   if (rest.find("Enl") != std::string::npos) enl = true;
 
-  // publish updates to matching cover(s)
+  // --- Publish updates to mapped sensors ---
+  auto it_lq = lq_map_.find(id);
+  auto it_status = status_map_.find(id);
+
+  if (enl) {
+    // Lost link
+    if (it_status != status_map_.end() && it_status->second)
+      it_status->second->publish_state("Offline");
+    if (it_lq != lq_map_.end() && it_lq->second)
+      it_lq->second->publish_state(NAN);
+    ESP_LOGW(TAG, "[%s] Lost link -> Offline (cleared link quality)", id.c_str());
+  }
+  else if (enp) {
+    // Not paired
+    if (it_status != status_map_.end() && it_status->second)
+      it_status->second->publish_state("Not paired");
+    if (it_lq != lq_map_.end() && it_lq->second)
+      it_lq->second->publish_state(NAN);
+    ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
+  }
+  else if (rssi >= 0) {
+    // Online / Active
+    float pct = (rssi / 255.0f) * 100.0f;
+    if (it_lq != lq_map_.end() && it_lq->second)
+      it_lq->second->publish_state(pct);
+    if (it_status != status_map_.end() && it_status->second)
+      it_status->second->publish_state("Online");
+    ESP_LOGD(TAG, "[%s] Online -> Link quality %.1f%%", id.c_str(), pct);
+  }
+
+  // --- Update matching cover ---
   for (auto *cv : covers_) {
     if (!cv) continue;
-    ESP_LOGD(TAG, "Checking cover id='%s' against frame id='%s'", cv->get_blind_id().c_str(), id.c_str());
-
     if (cv->get_blind_id() == id) {
       ESP_LOGI(TAG, "Matched cover id='%s' pos=%d R=%d", id.c_str(), pos, rssi);
 
-      if (pos >= 0)
+      if (pos >= 0) {
         cv->publish_raw_position(pos);
-      else if (enp || enl)
+      } else if (enp || enl) {
         cv->publish_unavailable();
+      }
 
       if (rssi >= 0) {
         float pct = (rssi / 255.0f) * 100.0f;
         cv->publish_link_quality(pct);
+      } else if (enl) {
+        cv->publish_link_quality(NAN);
       }
+
       break;
     }
   }
 
-  // 🔹 Update external mapped sensors
-  if (rssi >= 0) {
-    auto it = lq_map_.find(id);
-    if (it != lq_map_.end() && it->second != nullptr) {
-      float pct = (rssi / 255.0f) * 100.0f;
-      it->second->publish_state(pct);
-      ESP_LOGD(TAG, "[%s] External link quality updated: %.1f%%", id.c_str(), pct);
-    }
-
-    // mark status as online if R present
-    auto st = status_map_.find(id);
-    if (st != status_map_.end() && st->second != nullptr) {
-      st->second->publish_state("Online");
-      ESP_LOGD(TAG, "[%s] External status updated: Online", id.c_str());
-    }
-  }
-
-  if (enp || enl) {
-    auto it2 = status_map_.find(id);
-    if (it2 != status_map_.end() && it2->second != nullptr) {
-      std::string status;
-      if (enp) status += "Enp ";
-      if (enl) status += "Enl";
-      it2->second->publish_state(status);
-      ESP_LOGD(TAG, "[%s] External status updated: %s", id.c_str(), status.c_str());
-    }
-  }
-
-  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
+  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d enp=%d enl=%d", id.c_str(), pos, rssi, enp, enl);
 }
 
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
