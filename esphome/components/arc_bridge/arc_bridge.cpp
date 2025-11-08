@@ -145,9 +145,9 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     if (!cv) continue;
     if (cv->get_blind_id() == id) {
       if (enl || enp)
-        cv->set_availability(false);
+        cv->set_available(false);
       else
-        cv->set_availability(true);
+        cv->set_available(true);
 
       if (pos >= 0)
         cv->publish_raw_position(pos);

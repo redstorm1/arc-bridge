@@ -28,6 +28,11 @@ class ARCCover : public cover::Cover, public Component {
   // allow bridge to attach a sensor
   void set_link_sensor(sensor::Sensor *s) { this->link_sensor_ = s; }
 
+  void set_available(bool available) {
+    this->set_disabled_by_api(false);  // ensure it’s not disabled manually
+    this->availability_.publish_state(available);
+}
+
   // cover traits and commands
   cover::CoverTraits get_traits() override;
   void control(const cover::CoverCall &call) override;
