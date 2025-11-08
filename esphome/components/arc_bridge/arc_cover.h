@@ -28,10 +28,15 @@ class ARCCover : public cover::Cover, public Component {
   // allow bridge to attach a sensor
   void set_link_sensor(sensor::Sensor *s) { this->link_sensor_ = s; }
 
-  void set_available(bool available) {
-    this->set_disabled_by_api(false);  // ensure it’s not disabled manually
-    this->availability_.publish_state(available);
+    void set_available(bool available) {
+    // Toggle Home Assistant entity availability
+    this->mark_has_state(available);
+    if (!available) {
+        ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
+        this->publish_unavailable();
+    }
 }
+
 
   // cover traits and commands
   cover::CoverTraits get_traits() override;
