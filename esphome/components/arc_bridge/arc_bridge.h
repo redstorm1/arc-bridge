@@ -34,7 +34,11 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
   bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
-
+  // Public helper to send a simple ARC command
+  void send_simple(const std::string &id, char cmd, const std::string &arg) {
+    this->send_simple_(id, cmd, arg);
+  }
+  
  protected:
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
