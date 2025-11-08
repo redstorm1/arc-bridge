@@ -193,5 +193,9 @@ void ARCBridgeComponent::send_pair_command() {
   ESP_LOGI(TAG, "TX -> %s (pairing command)", frame.c_str());
 }
 
+void send_simple(const std::string &id, char cmd, const std::string &arg) {
+  this->send_simple_(id, cmd, arg);
+}
+
 }  // namespace arc_bridge
 }  // namespace esphome
