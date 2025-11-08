@@ -1,59 +1,139 @@
-# ESPHome ARC (Automate/Dooya) RS485 Component
+ESPHome ARC Bridge Component
 
-**Status:** alpha (discovery + basic cover control/feedback)
+Status: alpha (discovery + cover control + RSSI + pairing)
 
-This component speaks the ARC ASCII protocol over an ESP32 UART.
-It supports:
-- Bus sniffing & discovery (periodic broadcast `!000V?;`)
-- Cover entities with position + tilt
-- Commands: open/close/stop/move to %/tilt to °
-- API services to start/stop discovery and query all
+This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
+It allows direct control of ARC blinds without the original Pulse 2 Hub — supporting full cover control, automatic discovery, and live feedback (RSSI, status, and position).
 
-> ARC protocol reference: Rollease Acmeda "ARC Serial Protocol via ESP32".
+✨ Features
 
-## Install (as external component)
+✅ Full cover entity control (open / close / stop / move to %)
 
-```yaml
+🔍 Bus discovery and polling (!000r?; or !000V?;)
+
+📡 RSSI reporting (in dBm and %)
+
+🟢 Status tracking (Online, Offline, Not paired)
+
+🔄 Automatic availability updates (via Enl / Enp)
+
+🔘 Pairing command button (!000&;)
+
+🧩 Template sensor integration for link quality and status per blind
+
+🧠 Designed for the ARC ASCII protocol used by Rollease Acmeda / Automate / Dooya motors
+
+Protocol reference: Rollease Acmeda “ARC Serial Protocol via ESP32”
+
+⚙️ Installation (as External Component)
+
 external_components:
-  - source:
-      type: local
-      path: components
+
+source: github://redstorm1/arc-bridge
+components: [arc_bridge]
+refresh: 1s # optional while iterating to force refetch
 
 uart:
-  id: rs485_bus
-  tx_pin: GPIO15
-  rx_pin: GPIO13
-  baud_rate: 115200
-  parity: NONE
-  stop_bits: 1
-
-# RS485 transceiver enable not handled here; if needed use a GPIO to drive DE/RE.
+id: arc_uart
+tx_pin: GPIO15
+rx_pin: GPIO13
+baud_rate: 115200
+parity: NONE
+stop_bits: 1
 
 arc:
-  discovery_on_boot: true
-  broadcast_interval_ms: 5000
-  idle_gap_ms: 30
+id: arc
+discovery_on_boot: true
+query_interval_ms: 10000
+
+🪟 Cover Entities
 
 cover:
-  - platform: arc
-    name: "Lounge Blind"
-    address: "USZ"   # 3-char address observed on your fleet
-  - platform: arc
-    name: "Bedroom Left"
-    address: "101"
-```
 
-## Services (via ESPHome API)
+platform: arc
+name: "Office Blind"
+blind_id: "USZ"
 
-- `arc_start_discovery`
-- `arc_stop_discovery`
-- `arc_query_all`
+platform: arc
+name: "Guest Blind"
+blind_id: "ZXE"
 
-Call from HA Developer Tools → Services.
+platform: arc
+name: "Living Drape"
+blind_id: "NOM"
 
-## Notes
+Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
 
-- ARC frames look like `!<hub>D<motor><cmd><data>;` in the spec. When acting as the hub,
-  many fleets accept `!<motor><cmd><data>;` (hub omitted). The driver uses the latter by default.
-- Position is mapped: ARC 0=open, 100=closed → HA 1.0=open, 0.0=closed.
-- Tilt: 0–180° mapped to HA 0.0–1.0.
+📶 Link Quality & Status Sensors
+
+Optionally expose link quality and connection state as individual sensors:
+
+sensor:
+
+platform: template
+id: lq_usz
+name: "Office Blind Link Quality"
+unit_of_measurement: "%"
+icon: "mdi:signal"
+
+text_sensor:
+
+platform: template
+id: status_usz
+name: "Office Blind Status"
+
+These are automatically updated from ARC messages:
+
+Frame Type	Example	Action
+RSSI Report	!USZr100b180,RA6;	Updates position to 100% and RSSI ≈ −90 dBm (~17%) → Status = Online
+Lost Link	!USZEnl;	Clears link quality and sets status = Offline
+Not Paired	!USZEnp;	Clears link quality and sets status = Not Paired
+
+RSSI scaling: −100 dBm = 0 % · −40 dBm = 100 %
+
+🔘 Pairing Button
+
+You can trigger the blind pairing process directly from ESPHome or Home Assistant:
+
+button:
+
+platform: template
+name: "ARC Pairing"
+icon: "mdi:link-plus"
+on_press:
+
+lambda: |-
+id(arc)->send_simple("000", '&', "");
+
+This sends !000&; onto the bus to enter pairing mode.
+
+🧠 Services (via ESPHome API)
+Service	Description
+arc_start_discovery	Start periodic discovery broadcast
+arc_stop_discovery	Stop discovery loop
+arc_query_all	Query all known covers immediately
+arc_pair	Send pairing (!000&;)
+
+Accessible from Home Assistant → Developer Tools → Services.
+
+🧩 Protocol Details
+
+Standard frame format: !<id><command><data>;
+
+Examples:
+!USZr100b180,RA6; → Blind USZ, position 100, RSSI −90 dBm
+!USZEnl; → Lost link
+!USZEnp; → Not paired
+
+Usable RSSI range: −100 dBm (bad) → −40 dBm (excellent)
+Position mapping: ARC 0 = open → HA 1.0, ARC 100 = closed → HA 0.0
+
+🧰 Example Dashboard Layout
+
+Home Assistant automatically discovers covers and the pairing button.
+Template sensors (RSSI %, Status) can be added to a Lovelace card for live signal and connection monitoring.
+
+📄 License
+
+MIT License
+© 2025 Redstorm
