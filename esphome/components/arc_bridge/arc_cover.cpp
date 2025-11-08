@@ -28,6 +28,19 @@ void ARCCover::publish_raw_position(int device_pos) {
   this->publish_state();     // publish using the internal field
 }
 
+void ARCCover::publish_unavailable() {
+  ESP_LOGW("arc_cover", "[%s] device reported Enp/Enl, marking as unavailable", this->blind_id_.c_str());
+  this->position = NAN;
+  this->publish_state();
+}
+
+void ARCCover::publish_link_quality(float value) {
+  if (this->link_sensor_ != nullptr) {
+    this->link_sensor_->publish_state(value);
+    ESP_LOGD("arc_cover", "[%s] Link quality: %.1f%%", this->blind_id_.c_str(), value);
+  }
+}
+
 void ARCCover::control(const cover::CoverCall &call) {
   if (this->bridge_ == nullptr) {
     ESP_LOGW(TAG, "[%s] No ARC bridge associated", this->blind_id_.c_str());

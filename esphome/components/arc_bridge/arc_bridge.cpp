@@ -89,32 +89,56 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   std::string id = body.substr(0, i);
   std::string rest = (i < body.size()) ? body.substr(i) : "";
 
-  int pos = -1, rssi = -1;
-  bool enp = false, enl = false;
+  int pos = -1;
+  int rssi = -1;
+  bool enp = false;
+  bool enl = false;
 
+  // look for position field (r###)
   size_t rpos = rest.find('r');
-  if (rpos != std::string::npos) pos = std::atoi(rest.c_str() + rpos + 1);
+  if (rpos != std::string::npos)
+    pos = std::atoi(rest.c_str() + rpos + 1);
 
+  // look for RSSI / link quality field (R##)
   size_t Rpos = rest.find('R');
   if (Rpos != std::string::npos && Rpos + 1 < rest.size()) {
     const char *s = rest.c_str() + Rpos + 1;
     rssi = std::strtol(s, nullptr, 16);
   }
 
+  // look for Enp/Enl markers
   if (rest.find("Enp") != std::string::npos) enp = true;
   if (rest.find("Enl") != std::string::npos) enl = true;
 
-  // publish updates
+  // publish updates to matching cover(s)
   for (auto *cv : covers_) {
     if (!cv) continue;
     ESP_LOGD(TAG, "Checking cover id='%s' against frame id='%s'",
-            cv->get_blind_id().c_str(), id.c_str());
+             cv->get_blind_id().c_str(), id.c_str());
     if (cv->get_blind_id() == id) {
-      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d", id.c_str(), pos);
-      if (pos >= 0) cv->publish_raw_position(pos);
+      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d R=%d", id.c_str(), pos, rssi);
+
+      // 1️⃣ normal position update
+      if (pos >= 0) {
+        cv->publish_raw_position(pos);
+      }
+      // 2️⃣ mark unavailable if only Enp/Enl
+      else if (enp || enl) {
+        cv->publish_unavailable();
+      }
+
+      // 3️⃣ link-quality update (convert 0-255 → 0-100%)
+      if (rssi >= 0) {
+        float pct = (rssi / 255.0f) * 100.0f;
+        cv->publish_link_quality(pct);
+      }
+
       break;
     }
   }
+
+  ESP_LOGD(TAG, "Parsed id=%s r=%d R=%d", id.c_str(), pos, rssi);
+}
 
 
   // link quality sensor (optional)
