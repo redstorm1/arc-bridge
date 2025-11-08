@@ -144,9 +144,9 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
   }
-  else if (!std::isnan(pct)) {
+  else if (!std::isnan(dbm)) {
     if (it_lq != lq_map_.end() && it_lq->second)
-      it_lq->second->publish_state(pct);
+      it_lq->second->publish_state(dbm);
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Online");
     ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (%.1f%%)", id.c_str(), pos, dbm, pct);
