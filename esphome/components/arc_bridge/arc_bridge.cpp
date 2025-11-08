@@ -166,8 +166,8 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       else if (enp || enl)
         cv->publish_unavailable();
 
-      if (!std::isnan(pct))
-        cv->publish_link_quality(pct);
+      if (!std::isnan(dbm))
+        cv->publish_link_quality(dbm);
       else if (enl)
         cv->publish_link_quality(NAN);
 
