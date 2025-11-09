@@ -1,6 +1,6 @@
-ESPHome ARC Bridge Component
+# ESPHome ARC Bridge Component
 
-Status: alpha (discovery + cover control + RSSI + pairing)
+## Status: alpha (discovery + cover control + RSSI + pairing)
 
 This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
 It allows direct control of ARC blinds without the original Pulse 2 Hub — supporting full cover control, automatic discovery, and live feedback (RSSI, status, and position).
@@ -25,8 +25,8 @@ It allows direct control of ARC blinds without the original Pulse 2 Hub — supp
 
 Protocol reference: Rollease Acmeda “ARC Serial Protocol via ESP32”
 
-⚙️ Installation (as External Component)
-
+## ⚙️ Installation (as External Component)
+```
 external_components:
 
 source: github://redstorm1/arc-bridge
@@ -45,9 +45,10 @@ arc:
 id: arc
 discovery_on_boot: true
 query_interval_ms: 10000
+```
+## 🪟 Cover Entities
 
-🪟 Cover Entities
-
+```
 cover:
 
 platform: arc
@@ -61,13 +62,14 @@ blind_id: "ZXE"
 platform: arc
 name: "Living Drape"
 blind_id: "NOM"
+```
 
 Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
 
-📶 Link Quality & Status Sensors
+## 📶 Link Quality & Status Sensors
 
 Optionally expose link quality and connection state as individual sensors:
-
+```
 sensor:
 
 platform: template
@@ -81,7 +83,7 @@ text_sensor:
 platform: template
 id: status_usz
 name: "Office Blind Status"
-
+```
 These are automatically updated from ARC messages:
 
 Frame Type	Example	Action
@@ -91,10 +93,10 @@ Not Paired	!USZEnp;	Clears link quality and sets status = Not Paired
 
 RSSI scaling: −100 dBm = 0 % · −40 dBm = 100 %
 
-🔘 Pairing Button
+## 🔘 Pairing Button
 
 You can trigger the blind pairing process directly from ESPHome or Home Assistant:
-
+```
 button:
 
 platform: template
@@ -104,10 +106,10 @@ on_press:
 
 lambda: |-
 id(arc)->send_simple("000", '&', "");
-
+```
 This sends !000&; onto the bus to enter pairing mode.
 
-🧠 Services (via ESPHome API)
+## 🧠 Services (via ESPHome API)
 Service	Description
 arc_start_discovery	Start periodic discovery broadcast
 arc_stop_discovery	Stop discovery loop
@@ -116,7 +118,7 @@ arc_pair	Send pairing (!000&;)
 
 Accessible from Home Assistant → Developer Tools → Services.
 
-🧩 Protocol Details
+## 🧩 Protocol Details
 
 Standard frame format: !<id><command><data>;
 
@@ -128,7 +130,7 @@ Examples:
 Usable RSSI range: −100 dBm (bad) → −40 dBm (excellent)
 Position mapping: ARC 0 = open → HA 1.0, ARC 100 = closed → HA 0.0
 
-🧰 Example Dashboard Layout
+## 🧰 Example Dashboard Layout
 
 Home Assistant automatically discovers covers and the pairing button.
 Template sensors (RSSI %, Status) can be added to a Lovelace card for live signal and connection monitoring.
