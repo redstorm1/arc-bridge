@@ -34,8 +34,9 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::publish_unavailable() {
   ESP_LOGW("arc_cover", "[%s] marking as unavailable", this->blind_id_.c_str());
-  this->status_set_error();  // tells HA entity is unavailable
-  this->publish_state();     // refresh HA
+  this->position = NAN;         // clear any valid position
+  this->current_operation = cover::COVER_OPERATION_IDLE;
+  this->publish_state();        // this sends 'unavailable' to HA when pos is NaN
 }
 
 void ARCCover::publish_link_quality(float value) {
@@ -47,10 +48,11 @@ void ARCCover::publish_link_quality(float value) {
 
 void ARCCover::set_available(bool available) {
   if (!available) {
-    this->status_set_error();   // mark unavailable in HA
+    this->position = NAN;       // clear state
+    this->current_operation = cover::COVER_OPERATION_IDLE;
+    this->publish_state();      // HA will mark entity as unavailable
     ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
   } else {
-    this->status_clear_error(); // restore availability
     if (this->last_known_pos_ >= 0)
       this->publish_raw_position(this->last_known_pos_);
     ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
