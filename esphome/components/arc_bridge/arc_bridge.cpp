@@ -137,14 +137,14 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   if (enl) {
     if (it_status != status_map_.end() && it_status->second)
-      it_status->second->publish_state("Offline");
+      it_status->second->publish_state("unavailable");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Lost link -> Offline", id.c_str());
   }
   else if (enp) {
     if (it_status != status_map_.end() && it_status->second)
-      it_status->second->publish_state("Not paired");
+      it_status->second->publish_state("unavailable");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
