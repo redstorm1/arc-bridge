@@ -33,8 +33,9 @@ void ARCCover::publish_raw_position(int device_pos) {
 }
 
 void ARCCover::publish_unavailable() {
-  ESP_LOGW("arc_cover", "[%s] device reported Enp/Enl, marking as unavailable", this->blind_id_.c_str());
-  this->publish_state(false);  // mark as unavailable in Home Assistant
+  ESP_LOGW("arc_cover", "[%s] marking as unavailable", this->blind_id_.c_str());
+  this->status_set_error();  // tells HA entity is unavailable
+  this->publish_state();     // refresh HA
 }
 
 void ARCCover::publish_link_quality(float value) {
@@ -46,9 +47,10 @@ void ARCCover::publish_link_quality(float value) {
 
 void ARCCover::set_available(bool available) {
   if (!available) {
-    this->publish_state(false);  // Unavailable
+    this->status_set_error();   // mark unavailable in HA
     ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
   } else {
+    this->status_clear_error(); // restore availability
     if (this->last_known_pos_ >= 0)
       this->publish_raw_position(this->last_known_pos_);
     ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
