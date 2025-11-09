@@ -165,8 +165,8 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       cv->set_available(!offline);
 
       if (offline) {
-        cv->publish_unavailable();
         cv->publish_link_quality(NAN);
+        cv->publish_unavailable();
       } else {
         if (pos >= 0)
           cv->publish_raw_position(pos);
