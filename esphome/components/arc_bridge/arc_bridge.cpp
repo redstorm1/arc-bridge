@@ -161,20 +161,18 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   for (auto *cv : covers_) {
     if (!cv) continue;
     if (cv->get_blind_id() == id) {
-      if (enl || enp)
-        cv->set_available(false);
-      else
-        cv->set_available(true);
+      const bool offline = (enl || enp);
+      cv->set_available(!offline);
 
-      if (pos >= 0)
-        cv->publish_raw_position(pos);
-      else if (enp || enl)
+      if (offline) {
         cv->publish_unavailable();
-
-      if (!std::isnan(dbm))
-        cv->publish_link_quality(dbm);
-      else if (enl)
         cv->publish_link_quality(NAN);
+      } else {
+        if (pos >= 0)
+          cv->publish_raw_position(pos);
+        if (!std::isnan(dbm))
+          cv->publish_link_quality(dbm);
+      }
 
       ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (enp=%d enl=%d)", id.c_str(), pos, dbm, enp, enl);
       break;
