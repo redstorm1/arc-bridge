@@ -45,7 +45,19 @@ arc:
 id: arc
 discovery_on_boot: true
 query_interval_ms: 10000
+
+arc_bridge:
+  id: arc_bridge
+  uart_id: arc_uart
+  auto_poll: true           # optional, defaults to true
+  auto_poll_interval: 10s   # optional, defaults to 10s
 ```
+
+### Auto-poll Settings
+- `auto_poll`: Enables the bridge’s automatic rotation through covers to refresh their status (default `true`). Set to `false` to disable all background queries; manual commands still work.
+- `auto_poll_interval`: Interval between each cover query, provided as any ESPHome time string (default `10s`). Lower values increase responsiveness at the cost of more UART chatter. Setting the interval to `0s` also disables polling.
+
+Auto-polling now waits until the bridge’s startup guard has elapsed, preventing blinds from moving immediately after a reboot.
 ## 🪟 Cover Entities
 
 ```
