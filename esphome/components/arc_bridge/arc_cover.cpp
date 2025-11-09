@@ -19,7 +19,7 @@ void ARCCover::publish_raw_position(int device_pos) {
   if (device_pos < 0) device_pos = 0;
   if (device_pos > 100) device_pos = 100;
 
-  // cache for re-publish when returning online
+  // Cache last known position (0–100)
   this->last_known_pos_ = device_pos;
 
   // ARC: 0=open, 100=closed → HA: 1.0=open, 0.0=closed
@@ -34,14 +34,28 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::publish_unavailable() {
   ESP_LOGW("arc_cover", "[%s] device reported Enp/Enl, marking as unavailable", this->blind_id_.c_str());
-  this->position = NAN;
-  this->publish_state("unavailable");
+  this->set_availability(false);   // mark as unavailable in HA
+  this->publish_state();           // update HA
 }
 
 void ARCCover::publish_link_quality(float value) {
   if (this->link_sensor_ != nullptr) {
     this->link_sensor_->publish_state(value);
     ESP_LOGD("arc_cover", "[%s] Link quality: %.1f%%", this->blind_id_.c_str(), value);
+  }
+}
+
+void ARCCover::set_available(bool available) {
+  this->set_availability(available);  // tell ESPHome/HA entity status
+
+  if (!available) {
+    this->publish_unavailable();
+    ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
+  } else {
+    // restore last known position if known
+    if (this->last_known_pos_ >= 0)
+      this->publish_raw_position(this->last_known_pos_);
+    ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
   }
 }
 

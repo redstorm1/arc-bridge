@@ -43,8 +43,12 @@ class ARCCover : public cover::Cover, public Component {
   ARCBridgeComponent *bridge_{nullptr};
   std::string blind_id_;
   bool invert_position_{false};
-  int last_known_pos_{-1};
+
+  // optional linked sensor for RSSI / link quality
   sensor::Sensor *link_sensor_{nullptr};
+
+  // cache last known position for availability restore
+  int last_known_pos_{-1};
 };
 
 }  // namespace arc_bridge
