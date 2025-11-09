@@ -164,16 +164,21 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       const bool offline = (enl || enp);
 
       if (offline) {
-        cv->publish_unavailable();        // Marks as greyed out in HA
-        cv->publish_link_quality(NAN);    // Clear LQ
+        // Mark cover as unavailable
+        cv->set_available(false);
+        cv->publish_unavailable();      // Grey-out in HA
+        cv->publish_link_quality(NAN);  // Clear link quality
       } else {
+        cv->set_available(true);
         if (pos >= 0)
-          cv->publish_raw_position(pos);  // Sync position
+          cv->publish_raw_position(pos);
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }
 
-      ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (enp=%d enl=%d)", id.c_str(), pos, dbm, enp, enl);
+      ESP_LOGI(TAG,
+        "Matched cover id='%s' pos=%d RSSI=%.1fdBm (enp=%d enl=%d)",
+        id.c_str(), pos, dbm, enp, enl);
       break;
     }
   }
