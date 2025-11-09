@@ -44,7 +44,8 @@ void ARCBridgeComponent::loop() {
   }
 
   // periodic position query
-  const bool auto_poll_active = this->auto_poll_enabled_ && this->query_interval_ms_ > 0 && !covers_.empty();
+  const bool auto_poll_active =
+      this->startup_guard_cleared_ && this->auto_poll_enabled_ && this->query_interval_ms_ > 0 && !covers_.empty();
   uint32_t now = millis();
   if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
     this->last_query_millis_ = now;
