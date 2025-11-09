@@ -162,14 +162,13 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     if (!cv) continue;
     if (cv->get_blind_id() == id) {
       const bool offline = (enl || enp);
-      cv->set_available(!offline);
 
       if (offline) {
-        //cv->publish_link_quality(NAN);
-        cv->publish_unavailable();
+        cv->publish_unavailable();        // Marks as greyed out in HA
+        cv->publish_link_quality(NAN);    // Clear LQ
       } else {
         if (pos >= 0)
-          cv->publish_raw_position(pos);
+          cv->publish_raw_position(pos);  // Sync position
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }

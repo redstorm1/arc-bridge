@@ -10,14 +10,11 @@ class ARCBridgeComponent;  // forward declare
 
 class ARCCover : public cover::Cover, public Component {
  public:
-  // link this cover to the parent ARC bridge
   void set_bridge(ARCBridgeComponent *bridge) { this->bridge_ = bridge; }
 
-  // blind ID, e.g. "USZ"
   void set_blind_id(const std::string &id) { this->blind_id_ = id; }
   const std::string &get_blind_id() const { return this->blind_id_; }
 
-  // optional invert flag
   void set_invert_position(bool invert) { this->invert_position_ = invert; }
 
   // publishers
@@ -25,23 +22,20 @@ class ARCCover : public cover::Cover, public Component {
   void publish_unavailable();
   void publish_link_quality(float value);
 
-  // allow bridge to attach a sensor
   void set_link_sensor(sensor::Sensor *s) { this->link_sensor_ = s; }
 
+  // Correct availability handling for HA
   void set_available(bool available) {
-    // Notify Home Assistant about availability
-    this->set_has_state(available);
-
     if (!available) {
-        ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
-        this->publish_unavailable();
+      this->publish_unavailable();  // informs HA directly
+      ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
     } else {
-        ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
+      if (this->last_known_pos_ >= 0)
+        this->publish_raw_position(this->last_known_pos_);  // restore position
+      ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
     }
   }
 
-
-  // cover traits and commands
   cover::CoverTraits get_traits() override;
   void control(const cover::CoverCall &call) override;
 
@@ -49,8 +43,7 @@ class ARCCover : public cover::Cover, public Component {
   ARCBridgeComponent *bridge_{nullptr};
   std::string blind_id_;
   bool invert_position_{false};
-
-  // optional linked sensor for RSSI / link quality
+  int last_known_pos_{-1};
   sensor::Sensor *link_sensor_{nullptr};
 };
 

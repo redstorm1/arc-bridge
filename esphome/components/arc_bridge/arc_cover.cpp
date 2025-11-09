@@ -19,13 +19,17 @@ void ARCCover::publish_raw_position(int device_pos) {
   if (device_pos < 0) device_pos = 0;
   if (device_pos > 100) device_pos = 100;
 
-  // ARC: 0=open, 100=closed  →  HA: 1.0=open, 0.0=closed
+  // cache for re-publish when returning online
+  this->last_known_pos_ = device_pos;
+
+  // ARC: 0=open, 100=closed → HA: 1.0=open, 0.0=closed
   float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
 
-  ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f", this->blind_id_.c_str(), device_pos, ha_pos);
+  ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f",
+           this->blind_id_.c_str(), device_pos, ha_pos);
 
-  this->position = ha_pos;   // set the internal field ESPHome uses
-  this->publish_state();     // publish using the internal field
+  this->position = ha_pos;
+  this->publish_state();
 }
 
 void ARCCover::publish_unavailable() {
