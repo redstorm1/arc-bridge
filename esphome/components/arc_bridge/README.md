@@ -313,3 +313,4 @@ text_sensor:
   - platform: template
     id: status_mlt
     name: "Living Door Status"
+    ```
