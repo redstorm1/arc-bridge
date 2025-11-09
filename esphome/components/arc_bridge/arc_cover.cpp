@@ -25,7 +25,7 @@ void ARCCover::publish_raw_position(int device_pos) {
   ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f", this->blind_id_.c_str(), device_pos, ha_pos);
 
   this->position = ha_pos;   // set the internal field ESPHome uses
-  this->publish_state();     // publish using the internal field
+  this->publish_state("unavailable");     // publish using the internal field
 }
 
 void ARCCover::publish_unavailable() {
