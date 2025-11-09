@@ -33,6 +33,10 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   // sensor mapping (optional)
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
+
+  void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
+  void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
+
   bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
   // Public helper to send a simple ARC command
   void send_simple(const std::string &id, char cmd, const std::string &arg) {
@@ -49,6 +53,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   uint32_t last_query_millis_{0};
   size_t query_index_{0};
   bool startup_guard_cleared_{false};
+  bool auto_poll_enabled_{true};
+  uint32_t query_interval_ms_{QUERY_INTERVAL_MS};
 
   std::vector<ARCCover *> covers_;
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;

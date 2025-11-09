@@ -14,7 +14,9 @@ static const char *const TAG = "arc_bridge";
 void ARCBridgeComponent::setup() {
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
-  ESP_LOGI(TAG, "ARCBridge setup complete (startup guard %u ms)", STARTUP_GUARD_MS);
+  ESP_LOGI(TAG, "ARCBridge setup complete (startup guard %u ms, auto-poll %s, interval %u ms)", STARTUP_GUARD_MS,
+           (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
+           this->query_interval_ms_);
 }
 
 void ARCBridgeComponent::loop() {
@@ -42,8 +44,10 @@ void ARCBridgeComponent::loop() {
   }
 
   // periodic position query
-  if (millis() - this->last_query_millis_ >= QUERY_INTERVAL_MS && !covers_.empty()) {
-    this->last_query_millis_ = millis();
+  const bool auto_poll_active = this->auto_poll_enabled_ && this->query_interval_ms_ > 0 && !covers_.empty();
+  uint32_t now = millis();
+  if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
+    this->last_query_millis_ = now;
     if (this->query_index_ >= covers_.size()) this->query_index_ = 0;
     ARCCover *cvr = covers_[query_index_];
     if (cvr != nullptr) this->send_query(cvr->get_blind_id());
