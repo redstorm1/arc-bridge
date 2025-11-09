@@ -164,21 +164,17 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       const bool offline = (enl || enp);
 
       if (offline) {
-        // Mark cover as unavailable
-        cv->set_available(false);
-        cv->publish_unavailable();      // Grey-out in HA
-        cv->publish_link_quality(NAN);  // Clear link quality
+        cv->status_set_error();       // <-- marks entity unavailable in HA
+        cv->publish_link_quality(NAN);
+        ESP_LOGW(TAG, "[%s] Cover marked unavailable", id.c_str());
       } else {
-        cv->set_available(true);
+        cv->status_clear_error();     // <-- restores availability
         if (pos >= 0)
           cv->publish_raw_position(pos);
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }
 
-      ESP_LOGI(TAG,
-        "Matched cover id='%s' pos=%d RSSI=%.1fdBm (enp=%d enl=%d)",
-        id.c_str(), pos, dbm, enp, enl);
       break;
     }
   }
