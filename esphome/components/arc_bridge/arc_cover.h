@@ -25,16 +25,7 @@ class ARCCover : public cover::Cover, public Component {
   void set_link_sensor(sensor::Sensor *s) { this->link_sensor_ = s; }
 
   // Correct availability handling for HA
-  void set_available(bool available) {
-    if (!available) {
-      this->publish_unavailable();  // informs HA directly
-      ESP_LOGW("arc_cover", "[%s] marked unavailable", this->blind_id_.c_str());
-    } else {
-      if (this->last_known_pos_ >= 0)
-        this->publish_raw_position(this->last_known_pos_);  // restore position
-      ESP_LOGD("arc_cover", "[%s] marked available", this->blind_id_.c_str());
-    }
-  }
+  void set_available(bool available);
 
   cover::CoverTraits get_traits() override;
   void control(const cover::CoverCall &call) override;

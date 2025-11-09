@@ -34,8 +34,8 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::publish_unavailable() {
   ESP_LOGW("arc_cover", "[%s] device reported Enp/Enl, marking as unavailable", this->blind_id_.c_str());
-  this->set_availability(false);   // mark as unavailable in HA
-  this->publish_state();           // update HA
+  this->has_state_ = false;   // mark cover as unavailable internally
+  this->publish_state();
 }
 
 void ARCCover::publish_link_quality(float value) {
