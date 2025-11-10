@@ -1,7 +1,7 @@
 #include "arc_bridge.h"
 #include "arc_cover.h"
 #include "esphome/core/log.h"
-#include "esphome/components/mqtt/mqtt_client.h"
+
 #include <Arduino.h>
 #include <cctype>
 #include <cstdio>
@@ -135,34 +135,25 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   auto it_lq = lq_map_.find(id);
   auto it_status = status_map_.find(id);
 
-  if (enl || enp) {
+  if (enl) {
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("unavailable");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
-
     ESP_LOGW(TAG, "[%s] Lost link -> Offline", id.c_str());
-
-    // 🟢 MQTT availability -> offline
-    if (this->get_mqtt_client() && this->get_mqtt_client()->is_connected()) {
-      std::string topic = "homeassistant/cover/" + id + "/availability";
-      this->get_mqtt_client()->publish(topic.c_str(), "offline", 1, true);
-      ESP_LOGW(TAG, "[%s] MQTT availability -> offline", id.c_str());
-    }
+  }
+  else if (enp) {
+    if (it_status != status_map_.end() && it_status->second)
+      it_status->second->publish_state("unavailable");
+    if (it_lq != lq_map_.end() && it_lq->second)
+      it_lq->second->publish_state(NAN);
+    ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
   }
   else if (!std::isnan(dbm)) {
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(dbm);
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Online");
-
-    // 🟢 MQTT availability -> online
-    if (this->get_mqtt_client() && this->get_mqtt_client()->is_connected()) {
-      std::string topic = "homeassistant/cover/" + id + "/availability";
-      this->get_mqtt_client()->publish(topic.c_str(), "online", 1, true);
-      ESP_LOGI(TAG, "[%s] MQTT availability -> online", id.c_str());
-    }
-
     ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (%.1f%%)", id.c_str(), pos, dbm, pct);
   }
 
@@ -173,16 +164,17 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       const bool offline = (enl || enp);
 
       if (offline) {
-        cv->status_set_error();
+        cv->status_set_error();       // <-- marks entity unavailable in HA
         cv->publish_link_quality(NAN);
         ESP_LOGW(TAG, "[%s] Cover marked unavailable", id.c_str());
       } else {
-        cv->status_clear_error();
+        cv->status_clear_error();     // <-- restores availability
         if (pos >= 0)
           cv->publish_raw_position(pos);
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }
+
       break;
     }
   }
@@ -203,6 +195,7 @@ void ARCBridgeComponent::send_pair_command() {
   this->write_str(frame.c_str());
   ESP_LOGI(TAG, "TX -> %s (pairing command)", frame.c_str());
 }
+
 
 }  // namespace arc_bridge
 }  // namespace esphome
