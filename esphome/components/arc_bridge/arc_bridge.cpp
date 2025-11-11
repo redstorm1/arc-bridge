@@ -49,10 +49,7 @@ void ARCBridgeComponent::loop() {
   uint32_t now = millis();
   if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
     this->last_query_millis_ = now;
-    if (this->query_index_ >= covers_.size()) this->query_index_ = 0;
-    ARCCover *cvr = covers_[query_index_];
-    if (cvr != nullptr) this->send_query(cvr->get_blind_id());
-    this->query_index_ = (this->query_index_ + 1) % covers_.size();
+    this->send_query("000");  // broadcast query !000r?;
   }
 }
 
