@@ -16,36 +16,34 @@ cover::CoverTraits ARCCover::get_traits() {
 }
 
 void ARCCover::publish_raw_position(int device_pos) {
-  // Ignore nonsensical values (no publish)
+  // Handle missing or invalid position
   if (device_pos < 0 || device_pos > 100) {
-    ESP_LOGW("arc_cover", "[%s] invalid/missing position (%d) -> skipping publish",
-             this->blind_id_.c_str(), device_pos);
-    this->position = NAN;  // clear local position
+    ESP_LOGW("arc_cover", "[%s] invalid/missing position (%d) -> marking unknown", this->blind_id_.c_str(), device_pos);
+    this->position = NAN;
+    this->has_state_ = false;      // 👈 hide/gray out entity in HA
+    this->publish_state();
     return;
   }
 
   // Compute HA position (invert for 0=open, 100=closed)
   float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
 
-  // Only publish if it’s within 0–1 range
+  // Sanity check on calculated range
   if (ha_pos < 0.0f || ha_pos > 1.0f || std::isnan(ha_pos)) {
-    ESP_LOGW("arc_cover", "[%s] invalid ha_pos %.2f -> skipping publish",
-             this->blind_id_.c_str(), ha_pos);
-    this->position = NAN;
+    ESP_LOGW("arc_cover", "[%s] invalid ha_pos %.2f -> ignoring", this->blind_id_.c_str(), ha_pos);
     return;
   }
 
-  // Avoid re-publishing same state
-  if (!std::isnan(this->position) && fabs(this->position - ha_pos) < 0.005f) {
-    ESP_LOGV("arc_cover", "[%s] ha_pos=%.2f unchanged -> no publish",
-             this->blind_id_.c_str(), ha_pos);
+  // If value hasn’t changed, skip publish to reduce traffic
+  if (this->has_state_ && !std::isnan(this->position) && fabs(this->position - ha_pos) < 0.005f) {
+    ESP_LOGV("arc_cover", "[%s] ha_pos=%.2f unchanged -> no publish", this->blind_id_.c_str(), ha_pos);
     return;
   }
 
-  ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f",
-           this->blind_id_.c_str(), device_pos, ha_pos);
-
+  // All good — update internal state and publish
   this->position = ha_pos;
+  this->has_state_ = true;        // 👈 restore visibility
+  ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f", this->blind_id_.c_str(), device_pos, ha_pos);
   this->publish_state();
 }
 
