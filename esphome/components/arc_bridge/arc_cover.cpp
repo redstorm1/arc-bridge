@@ -36,8 +36,8 @@ void ARCCover::publish_unavailable() {
   ESP_LOGW("arc_cover", "[%s] marking as unavailable", this->blind_id_.c_str());
   // Mark the entity as unavailable using the component status flag
   this->status_set_warning();      // sets HA entity to unavailable/warning
-  this->position = NAN;            // clear any valid position
-  this->publish_state();           // trigger HA update
+  //this->position = NAN;            // clear any valid position
+  this->publish_state("unavailable");           // trigger HA update
 }
 
 void ARCCover::publish_link_quality(float value) {

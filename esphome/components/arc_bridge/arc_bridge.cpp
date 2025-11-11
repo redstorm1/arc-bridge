@@ -177,9 +177,8 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
       if (offline) {
         // mark the entity’s state as unknown in HA (slider greys out)
-        cv->set_available(false); 
-        //cv->publish_unavailable();       // <-- use your helper
-        cv->publish_state("unavailable"); // set state to unavailable
+        //cv->set_available(false); 
+        cv->publish_unavailable();       // <-- use your helper
         cv->publish_link_quality(NAN);   // clear LQ
         ESP_LOGW(TAG, "[%s] Cover marked unavailable (unknown state published)", id.c_str());
       } else {
