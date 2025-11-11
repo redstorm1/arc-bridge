@@ -167,17 +167,16 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       const bool offline = (enl || enp);
 
       if (offline) {
-        cv->status_set_error();       // <-- marks entity unavailable in HA
-        cv->publish_link_quality(NAN);
-        ESP_LOGW(TAG, "[%s] Cover marked unavailable", id.c_str());
+        // mark the entity’s state as unknown in HA (slider greys out)
+        cv->publish_unavailable();       // <-- use your helper
+        cv->publish_link_quality(NAN);   // clear LQ
+        ESP_LOGW(TAG, "[%s] Cover marked unavailable (unknown state published)", id.c_str());
       } else {
-        cv->status_clear_error();     // <-- restores availability
         if (pos >= 0)
-          cv->publish_raw_position(pos);
+          cv->publish_raw_position(pos);   // sync position
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }
-
       break;
     }
   }
