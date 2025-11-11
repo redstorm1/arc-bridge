@@ -16,13 +16,19 @@ cover::CoverTraits ARCCover::get_traits() {
 }
 
 void ARCCover::publish_raw_position(int device_pos) {
-  if (device_pos < 0) device_pos = 0;
-  if (device_pos > 100) device_pos = 100;
+  // Treat -1 or any nonsensical value as unknown
+  if (device_pos < 0 || device_pos > 100) {
+    ESP_LOGW("arc_cover", "[%s] invalid or missing position (%d) -> marking unknown",
+             this->blind_id_.c_str(), device_pos);
+    this->position = NAN;          // mark as undefined
+    this->publish_state();         // Home Assistant shows "unknown"
+    return;
+  }
 
-  // Cache last known position (0–100)
+  // Cache last known good position
   this->last_known_pos_ = device_pos;
 
-  // ARC: 0=open, 100=closed → HA: 1.0=open, 0.0=closed
+  // ARC: 0=open, 100=closed  →  HA: 1.0=open, 0.0=closed
   float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
 
   ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f",
