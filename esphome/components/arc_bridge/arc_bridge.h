@@ -51,6 +51,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::deque<char> rx_buffer_;
   uint32_t boot_millis_{0};
   uint32_t last_query_millis_{0};
+  uint32_t last_rx_millis_{0};
   size_t query_index_{0};
   bool startup_guard_cleared_{false};
   bool auto_poll_enabled_{true};
