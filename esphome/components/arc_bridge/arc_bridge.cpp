@@ -12,6 +12,8 @@ namespace arc_bridge {
 static const char *const TAG = "arc_bridge";
 
 void ARCBridgeComponent::setup() {
+  // Flush any stale UART bytes first
+  while (this->available()) this->read();
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
   ESP_LOGI(TAG, "ARCBridge setup complete (startup guard %u ms, auto-poll %s, interval %u ms)", STARTUP_GUARD_MS,
@@ -31,15 +33,22 @@ void ARCBridgeComponent::loop() {
     int c = this->read();
     if (c < 0) break;
     rx_buffer_.push_back(static_cast<char>(c));
+    last_rx_millis_ = millis();
 
-    size_t start = rx_buffer_.find('!');
-    size_t end = rx_buffer_.find(';', start);
-    if (start != std::string::npos && end != std::string::npos && end > start) {
-      std::string frame = rx_buffer_.substr(start, end - start + 1);
-      rx_buffer_.erase(0, end + 1);
+    if (rx_buffer_.size() > 256) {
+      rx_buffer_.clear();
+      ESP_LOGW(TAG, "RX deque overflow cleared");
+      continue;
+    }
+
+    // find start ('!') and end (';')
+    auto start_it = std::find(rx_buffer_.begin(), rx_buffer_.end(), '!');
+    auto end_it = std::find(rx_buffer_.begin(), rx_buffer_.end(), ';');
+
+    if (start_it != rx_buffer_.end() && end_it != rx_buffer_.end() && end_it > start_it) {
+      std::string frame(start_it, end_it + 1);
+      rx_buffer_.erase(rx_buffer_.begin(), end_it + 1);
       this->handle_frame(frame);
-    } else if (rx_buffer_.size() > 256) {
-      rx_buffer_.clear();  // prevent runaway buffer
     }
   }
 

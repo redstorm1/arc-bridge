@@ -48,7 +48,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void parse_frame(const std::string &frame);
   void send_simple_(const std::string &id, char command, const std::string &payload = "");
 
-  std::string rx_buffer_;
+  std::deque<char> rx_buffer_;
   uint32_t boot_millis_{0};
   uint32_t last_query_millis_{0};
   size_t query_index_{0};
