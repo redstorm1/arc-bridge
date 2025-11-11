@@ -86,15 +86,21 @@ void ARCBridgeComponent::handle_frame(const std::string &frame) {
   parse_frame(frame);
 }
 
-// Helper: convert raw R value to dBm and % quality
+// Helper: convert raw Si4462 RSSI byte to dBm and % quality
 static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
-  // Observed practical range: 0x50 (80) ≈ -100 dBm  →  0xA8 (168) ≈ -40 dBm
-  if (raw < 0x50) raw = 0x50;
-  if (raw > 0xA8) raw = 0xA8;
+  // Datasheet-based conversion:
+  //   RSSI_dBm = (RSSI_value / 2) - MODEM_RSSI_COMP - 70
+  // Approximate with COMP ≈ 60 for many boards -> (raw / 2) - 130
+  if (raw > 255) raw = 255;
 
-  dbm = -100.0f + ((raw - 0x50) / float(0xA8 - 0x50)) * 60.0f;
-  pct = ((dbm + 100.0f) / 60.0f) * 100.0f;
+  dbm = (raw / 2.0f) - 130.0f;  // simplified linear mapping
 
+  // Optional clamp: Si4462 typical range -110..-30 dBm
+  if (dbm < -120.0f) dbm = -120.0f;
+  if (dbm > -20.0f)  dbm = -20.0f;
+
+  // Convert to 0–100 % for display
+  pct = (dbm + 120.0f) / 100.0f * 100.0f;  // -120 dBm = 0%, -20 dBm = 100%
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
 }
