@@ -16,20 +16,31 @@ cover::CoverTraits ARCCover::get_traits() {
 }
 
 void ARCCover::publish_raw_position(int device_pos) {
-  // Treat -1 or any nonsensical value as unknown
+  // Ignore nonsensical values (no publish)
   if (device_pos < 0 || device_pos > 100) {
-    ESP_LOGW("arc_cover", "[%s] invalid or missing position (%d) -> marking unknown",
+    ESP_LOGW("arc_cover", "[%s] invalid/missing position (%d) -> skipping publish",
              this->blind_id_.c_str(), device_pos);
-    this->position = NAN;          // mark as undefined
-    this->publish_state();         // Home Assistant shows "unknown"
+    this->position = NAN;  // clear local position
     return;
   }
 
-  // Cache last known good position
-  this->last_known_pos_ = device_pos;
-
-  // ARC: 0=open, 100=closed  →  HA: 1.0=open, 0.0=closed
+  // Compute HA position (invert for 0=open, 100=closed)
   float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
+
+  // Only publish if it’s within 0–1 range
+  if (ha_pos < 0.0f || ha_pos > 1.0f || std::isnan(ha_pos)) {
+    ESP_LOGW("arc_cover", "[%s] invalid ha_pos %.2f -> skipping publish",
+             this->blind_id_.c_str(), ha_pos);
+    this->position = NAN;
+    return;
+  }
+
+  // Avoid re-publishing same state
+  if (!std::isnan(this->position) && fabs(this->position - ha_pos) < 0.005f) {
+    ESP_LOGV("arc_cover", "[%s] ha_pos=%.2f unchanged -> no publish",
+             this->blind_id_.c_str(), ha_pos);
+    return;
+  }
 
   ESP_LOGD("arc_cover", "[%s] device_pos=%d -> ha_pos=%.2f",
            this->blind_id_.c_str(), device_pos, ha_pos);
