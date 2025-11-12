@@ -208,6 +208,19 @@ void ARCBridgeComponent::send_pair_command() {
   ESP_LOGI(TAG, "TX -> %s (pairing command)", frame.c_str());
 }
 
+void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
+  if (cmd.empty()) {
+    ESP_LOGW(TAG, "send_raw_command: empty command ignored");
+    return;
+  }
+
+  std::string tx = cmd;
+  if (tx.front() != '!') tx.insert(0, "!");
+  if (tx.back() != ';') tx.append(";");
+
+  this->write_str(tx.c_str());
+  ESP_LOGI(TAG, "TX (raw) -> %s", tx.c_str());
+}
 
 }  // namespace arc_bridge
 }  // namespace esphome
