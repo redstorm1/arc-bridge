@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <deque>   // <-- REQUIRED for TX queue
 
 namespace esphome {
 namespace arc_bridge {
@@ -64,6 +65,14 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
 
   static const uint32_t QUERY_INTERVAL_MS = 10000;  // 10s per blind
   static const uint32_t STARTUP_GUARD_MS = 10000;   // 10s before accepting control
+
+  // ================ TX QUEUE SUPPORT ===================
+  std::deque<std::string> tx_queue_;
+  uint32_t last_tx_millis_{0};
+  static const uint32_t TX_GAP_MS = 300;  // Spacing between frames
+  void queue_tx(const std::string &frame);
+  void process_tx_queue_();
+  // ======================================================
 };
 
 }  // namespace arc_bridge

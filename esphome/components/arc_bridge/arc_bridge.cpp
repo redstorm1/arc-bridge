@@ -5,116 +5,231 @@
 #include <Arduino.h>
 #include <cctype>
 #include <cstdio>
+#include <algorithm>
 
 namespace esphome {
 namespace arc_bridge {
 
 static const char *const TAG = "arc_bridge";
 
+// =========================================================
+//  TX QUEUE IMPLEMENTATION
+// =========================================================
+
+void ARCBridgeComponent::queue_tx(const std::string &frame) {
+  tx_queue_.push_back(frame);
+  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u)", frame.c_str(),
+           (unsigned)tx_queue_.size());
+}
+
+void ARCBridgeComponent::process_tx_queue_() {
+  uint32_t now = millis();
+
+  if (tx_queue_.empty())
+    return;
+
+  // enforce spacing between ARC frames
+  if (now - last_tx_millis_ < TX_GAP_MS)
+    return;
+
+  std::string frame = tx_queue_.front();
+  tx_queue_.pop_front();
+
+  this->write_str(frame.c_str());
+  last_tx_millis_ = now;
+
+  ESP_LOGD(TAG, "TX -> %s (queued send)", frame.c_str());
+}
+
+// =========================================================
+//  SETUP
+// =========================================================
+
 void ARCBridgeComponent::setup() {
-  // Flush any stale UART bytes first
-  while (this->available()) this->read();
+  while (this->available())
+    this->read();  // clear stale UART
+
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
-  ESP_LOGI(TAG, "ARCBridge setup complete (startup guard %u ms, auto-poll %s, interval %u ms)", STARTUP_GUARD_MS,
-           (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
+
+  ESP_LOGI(TAG,
+           "ARCBridge setup complete (startup guard %u ms, auto-poll %s, interval %u ms)",
+           STARTUP_GUARD_MS,
+           (this->auto_poll_enabled_ && this->query_interval_ms_ > 0)
+               ? "enabled"
+               : "disabled",
            this->query_interval_ms_);
 }
 
+// =========================================================
+//  LOOP
+// =========================================================
+
 void ARCBridgeComponent::loop() {
-  // clear startup guard after delay
-  if (!this->startup_guard_cleared_ && millis() - this->boot_millis_ >= STARTUP_GUARD_MS) {
+  uint32_t now = millis();
+
+  // clear startup guard after timeout
+  if (!this->startup_guard_cleared_ &&
+      now - this->boot_millis_ >= STARTUP_GUARD_MS) {
     this->startup_guard_cleared_ = true;
-    ESP_LOGI(TAG, "Startup guard cleared for ARC bridge");
+    ESP_LOGI(TAG, "Startup guard cleared");
   }
 
-  // read UART
+  // -----------------------------
+  // UART RX PROCESSING
+  // -----------------------------
   while (this->available()) {
     int c = this->read();
-    if (c < 0) break;
+    if (c < 0)
+      break;
+
     rx_buffer_.push_back(static_cast<char>(c));
-    last_rx_millis_ = millis();
+    last_rx_millis_ = now;
 
     if (rx_buffer_.size() > 256) {
       rx_buffer_.clear();
-      ESP_LOGW(TAG, "RX deque overflow cleared");
+      ESP_LOGW(TAG, "RX buffer overflow cleared");
       continue;
     }
 
-    // find start ('!') and end (';')
+    // detect full packet !.....;
     auto start_it = std::find(rx_buffer_.begin(), rx_buffer_.end(), '!');
     auto end_it = std::find(rx_buffer_.begin(), rx_buffer_.end(), ';');
 
-    if (start_it != rx_buffer_.end() && end_it != rx_buffer_.end() && end_it > start_it) {
+    if (start_it != rx_buffer_.end() && end_it != rx_buffer_.end() &&
+        end_it > start_it) {
       std::string frame(start_it, end_it + 1);
       rx_buffer_.erase(rx_buffer_.begin(), end_it + 1);
       this->handle_frame(frame);
     }
   }
 
-  // periodic position query
+  // -----------------------------
+  // AUTO-POLL BROADCAST QUERY
+  // -----------------------------
   const bool auto_poll_active =
-      this->startup_guard_cleared_ && this->auto_poll_enabled_ && this->query_interval_ms_ > 0 && !covers_.empty();
-  uint32_t now = millis();
-  if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
+      this->startup_guard_cleared_ && this->auto_poll_enabled_ &&
+      this->query_interval_ms_ > 0 && !covers_.empty();
+
+  if (auto_poll_active && now - this->last_query_millis_ >=
+                               this->query_interval_ms_) {
     this->last_query_millis_ = now;
-    this->send_query("000");  // broadcast query !000r?;
+    this->send_query("000");  // broadcast query
   }
+
+  // -----------------------------
+  // TX QUEUE PROCESSING
+  // -----------------------------
+  process_tx_queue_();
 }
 
-void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) {
+// =========================================================
+//  COVER REGISTRATION
+// =========================================================
+
+void ARCBridgeComponent::register_cover(const std::string &id,
+                                        ARCCover *cover) {
   covers_.push_back(cover);
   ESP_LOGD(TAG, "Registered cover id='%s'", id.c_str());
 }
 
-void ARCBridgeComponent::send_simple_(const std::string &id, char command, const std::string &payload) {
-  std::string frame = "!" + id + command + payload + ";";
-  this->write_str(frame.c_str());
-  ESP_LOGD(TAG, "TX -> %s", frame.c_str());
+// =========================================================
+//  COMMAND SENDERS  (all now use queue_tx())
+// =========================================================
+
+void ARCBridgeComponent::send_simple_(const std::string &id, char command,
+                                      const std::string &payload) {
+  std::string frame =
+      "!" + id + command + payload + ";";
+  queue_tx(frame);
+  ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
 }
 
-void ARCBridgeComponent::send_open(const std::string &id) { send_simple_(id, 'o'); }
-void ARCBridgeComponent::send_close(const std::string &id) { send_simple_(id, 'c'); }
-void ARCBridgeComponent::send_stop(const std::string &id) { send_simple_(id, 's'); }
+void ARCBridgeComponent::send_open(const std::string &id) {
+  send_simple_(id, 'o');
+}
+
+void ARCBridgeComponent::send_close(const std::string &id) {
+  send_simple_(id, 'c');
+}
+
+void ARCBridgeComponent::send_stop(const std::string &id) {
+  send_simple_(id, 's');
+}
 
 void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
-  if (percent > 100) percent = 100;
+  if (percent > 100)
+    percent = 100;
+
   char buf[4];
   snprintf(buf, sizeof(buf), "%03u", percent);
   send_simple_(id, 'm', buf);
 }
 
-void ARCBridgeComponent::send_query(const std::string &id) { send_simple_(id, 'r', "?"); }
+void ARCBridgeComponent::send_query(const std::string &id) {
+  send_simple_(id, 'r', "?");
+}
+
+void ARCBridgeComponent::send_pair_command() {
+  std::string frame = "!000&;";
+  queue_tx(frame);
+  ESP_LOGI(TAG, "TX queued -> %s (pairing command)", frame.c_str());
+}
+
+void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
+  if (cmd.empty()) {
+    ESP_LOGW(TAG, "send_raw_command: empty command ignored");
+    return;
+  }
+
+  std::string tx = cmd;
+
+  if (tx.front() != '!')
+    tx.insert(0, "!");
+  if (tx.back() != ';')
+    tx.push_back(';');
+
+  queue_tx(tx);
+  ESP_LOGI(TAG, "TX queued (raw) -> %s", tx.c_str());
+}
+
+// =========================================================
+//  FRAME PARSING
+// =========================================================
 
 void ARCBridgeComponent::handle_frame(const std::string &frame) {
   ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
-  if (frame.size() < 5) return;  // too short
+  if (frame.size() < 5)
+    return;
+
   parse_frame(frame);
 }
 
-// Helper: convert raw Si4462 RSSI byte to dBm and % quality
+// ------------------------------------------
+// RSSI conversion helper
+// ------------------------------------------
 static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
-  // Datasheet-based conversion:
-  //   RSSI_dBm = (RSSI_value / 2) - MODEM_RSSI_COMP - 70
-  // Approximate with COMP ≈ 60 for many boards -> (raw / 2) - 130
-  if (raw > 255) raw = 255;
+  dbm = (raw / 2.0f) - 130.0f;
 
-  dbm = (raw / 2.0f) - 130.0f;  // simplified linear mapping
+  if (dbm < -120)
+    dbm = -120;
+  if (dbm > -20)
+    dbm = -20;
 
-  // Optional clamp: Si4462 typical range -110..-30 dBm
-  if (dbm < -120.0f) dbm = -120.0f;
-  if (dbm > -20.0f)  dbm = -20.0f;
-
-  // Convert to 0–100 % for display
-  pct = (dbm + 120.0f) / 100.0f * 100.0f;  // -120 dBm = 0%, -20 dBm = 100%
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
+  pct = (dbm + 120.0f);
+  if (pct < 0)
+    pct = 0;
+  if (pct > 100)
+    pct = 100;
 }
 
-// -------------------------------------------------------------------------
-// Main parser
+// ------------------------------------------
+// MAIN FRAME PARSER
+// ------------------------------------------
 void ARCBridgeComponent::parse_frame(const std::string &frame) {
-  if (frame.size() < 5) return;
+  if (frame.size() < 5)
+    return;
+
   std::string body = frame.substr(1, frame.size() - 2);
 
   std::string id = body.substr(0, 3);
@@ -126,18 +241,19 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   bool enp = false;
   bool enl = false;
 
-  // parse position r###
+  // parse r###
   size_t rpos = rest.find('r');
   if (rpos != std::string::npos)
     pos = std::atoi(rest.c_str() + rpos + 1);
 
-  // parse RSSI R##
+  // parse RSSI hex
   size_t Rpos = rest.find('R');
   if (Rpos != std::string::npos && Rpos + 2 <= rest.size()) {
     std::string hex_str = rest.substr(Rpos + 1, 2);
     int raw_val = std::strtol(hex_str.c_str(), nullptr, 16);
     decode_rssi(raw_val, dbm, pct);
-    ESP_LOGI(TAG, "[%s] R=%s -> %.1f dBm (%.1f%%)", id.c_str(), hex_str.c_str(), dbm, pct);
+    ESP_LOGI(TAG, "[%s] R=%s -> %.1f dBm (%.1f%%)", id.c_str(),
+             hex_str.c_str(), dbm, pct);
   }
 
   // state flags
@@ -152,38 +268,33 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
       it_status->second->publish_state("unavailable");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
-    ESP_LOGW(TAG, "[%s] Lost link -> Offline", id.c_str());
-  }
-  else if (enp) {
+    ESP_LOGW(TAG, "[%s] Lost link", id.c_str());
+  } else if (enp) {
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("unavailable");
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(NAN);
-    ESP_LOGW(TAG, "[%s] Not paired -> Link quality cleared", id.c_str());
-  }
-  else if (!std::isnan(dbm)) {
+    ESP_LOGW(TAG, "[%s] Not paired", id.c_str());
+  } else if (!std::isnan(dbm)) {
     if (it_lq != lq_map_.end() && it_lq->second)
       it_lq->second->publish_state(dbm);
     if (it_status != status_map_.end() && it_status->second)
       it_status->second->publish_state("Online");
-    ESP_LOGI(TAG, "Matched cover id='%s' pos=%d RSSI=%.1fdBm (%.1f%%)", id.c_str(), pos, dbm, pct);
   }
 
   // cover updates
   for (auto *cv : covers_) {
-    if (!cv) continue;
+    if (!cv)
+      continue;
     if (cv->get_blind_id() == id) {
       const bool offline = (enl || enp);
 
       if (offline) {
-        // mark the entity’s state as unknown in HA (slider greys out)
-        //cv->set_available(false);
-        cv->publish_raw_position(-1);   // show unknown
-        //cv->publish_link_quality(NAN);   // clear LQ
-        ESP_LOGW(TAG, "[%s] Cover marked unavailable (unknown state published)", id.c_str());
+        cv->publish_raw_position(-1);
+        ESP_LOGW(TAG, "[%s] Marked unavailable", id.c_str());
       } else {
         if (pos >= 0)
-          cv->publish_raw_position(pos);   // sync position
+          cv->publish_raw_position(pos);
         if (!std::isnan(dbm))
           cv->publish_link_quality(dbm);
       }
@@ -191,36 +302,23 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     }
   }
 
-  ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f enp=%d enl=%d", id.c_str(), pos, dbm, enp, enl);
+  ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f", id.c_str(), pos, dbm);
 }
 
-void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *s) {
+// =========================================================
+//  SENSOR MAPPING
+// =========================================================
+
+void ARCBridgeComponent::map_lq_sensor(const std::string &id,
+                                       sensor::Sensor *s) {
   lq_map_[id] = s;
 }
 
-void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *s) {
+void ARCBridgeComponent::map_status_sensor(const std::string &id,
+                                           text_sensor::TextSensor *s) {
   status_map_[id] = s;
-}
-
-void ARCBridgeComponent::send_pair_command() {
-  std::string frame = "!000&;";
-  this->write_str(frame.c_str());
-  ESP_LOGI(TAG, "TX -> %s (pairing command)", frame.c_str());
-}
-
-void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
-  if (cmd.empty()) {
-    ESP_LOGW(TAG, "send_raw_command: empty command ignored");
-    return;
-  }
-
-  std::string tx = cmd;
-  if (tx.front() != '!') tx.insert(0, "!");
-  if (tx.back() != ';') tx.append(";");
-
-  this->write_str(tx.c_str());
-  ESP_LOGI(TAG, "TX (raw) -> %s", tx.c_str());
 }
 
 }  // namespace arc_bridge
 }  // namespace esphome
+
