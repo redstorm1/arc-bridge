@@ -69,7 +69,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   // ================ TX QUEUE SUPPORT ===================
   std::deque<std::string> tx_queue_;
   uint32_t last_tx_millis_{0};
-  static const uint32_t TX_GAP_MS = 300;  // Spacing between frames
+  static const uint32_t TX_GAP_MS = 500;  // Spacing between frames
   void queue_tx(const std::string &frame);
   void process_tx_queue_();
   // ======================================================
