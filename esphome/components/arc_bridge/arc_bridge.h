@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <deque>   // <-- REQUIRED for TX queue
+#include <deque>
 
 namespace esphome {
 namespace arc_bridge {
@@ -32,7 +32,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_pair_command();
   void send_raw_command(const std::string &cmd);
 
-  // sensor mapping (optional)
+  // sensor mapping
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
 
@@ -40,20 +40,33 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
 
   bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
-  // Public helper to send a simple ARC command
-  void send_simple(const std::string &id, char cmd, const std::string &arg) {
+
+  void send_simple(const std::string &id, char cmd, const std::string &arg = "") {
     this->send_simple_(id, cmd, arg);
   }
-  
+
  protected:
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
-  void send_simple_(const std::string &id, char command, const std::string &payload = "");
+  void send_simple_(const std::string &id, char command, const std::string &payload);
 
+  // ===============================
+  // CONSTANTS (Option A ordering)
+  // ===============================
+  static const uint32_t QUERY_INTERVAL_MS = 10000;      // 10 seconds
+  static const uint32_t STARTUP_GUARD_MS  = 10000;      // 10 seconds
+  static const uint32_t TX_GAP_MS         = 800;        // safe TX spacing
+  static const uint32_t MOVEMENT_QUIET_MS = 90000;      // 90 seconds
+  static const uint32_t TX_WATCHDOG_MS    = 5000;       // 5 seconds
+
+  // ===============================
+  // INTERNAL STATE
+  // ===============================
   std::deque<char> rx_buffer_;
   uint32_t boot_millis_{0};
   uint32_t last_query_millis_{0};
   uint32_t last_rx_millis_{0};
+  uint32_t last_motion_millis_{0};
   size_t query_index_{0};
   bool startup_guard_cleared_{false};
   bool auto_poll_enabled_{true};
@@ -63,16 +76,13 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
 
-  static const uint32_t QUERY_INTERVAL_MS = 10000;  // 10s per blind
-  static const uint32_t STARTUP_GUARD_MS = 10000;   // 10s before accepting control
-
-  // ================ TX QUEUE SUPPORT ===================
+  // ===============================
+  // TX QUEUE SUPPORT
+  // ===============================
   std::deque<std::string> tx_queue_;
   uint32_t last_tx_millis_{0};
-  static const uint32_t TX_GAP_MS = 800;  // Spacing between frames
   void queue_tx(const std::string &frame);
   void process_tx_queue_();
-  // ======================================================
 };
 
 }  // namespace arc_bridge
