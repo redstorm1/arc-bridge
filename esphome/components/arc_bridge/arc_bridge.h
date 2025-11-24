@@ -48,7 +48,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
  protected:
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
-  void send_simple_(const std::string &id, char command, const std::string &payload);
+  void send_simple_(const std::string &id, char command, const std::string &payload = "");
 
   // ===============================
   // CONSTANTS (Option A ordering)
