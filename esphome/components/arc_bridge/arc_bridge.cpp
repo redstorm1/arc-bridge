@@ -153,37 +153,38 @@ void ARCBridgeComponent::loop() {
   // -----------------------------
   // TX WATCHDOG (movement-aware)
   // -----------------------------
-  
-  // Don't watchdog until we've transmitted at least once AND waited enough
-  if (last_tx_millis_ == boot_millis_) return;
-
   if (!this->tx_queue_.empty()) {
+
+      // Skip watchdog entirely until first TX occurs
+      if (this->last_tx_millis_ == this->boot_millis_) {
+          // First TX hasn't happened → watchdog off
+          return;
+      }
+
       uint32_t since_rx = now - this->last_rx_millis_;
       uint32_t since_tx = now - this->last_tx_millis_;
       bool quiet_due_to_motion_wd =
           (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
 
-      // Only trigger if it's been "too long" since we last TX *and* last RX.
       if (since_rx >= TX_WATCHDOG_MS && since_tx >= TX_WATCHDOG_MS) {
-        ESP_LOGW(TAG,
-                 "TX Watchdog: No RX for %u ms (last TX %u ms ago) while TX pending -> clearing queue",
-                 since_rx, since_tx);
+          ESP_LOGW(TAG,
+                  "TX Watchdog: No RX for %u ms (last TX %u ms ago) "
+                  "while TX pending -> clearing queue",
+                  since_rx, since_tx);
 
-        this->tx_queue_.clear();
+          this->tx_queue_.clear();
 
-        if (!quiet_due_to_motion_wd) {
-          ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
-          for (auto *cv : covers_) {
-            if (!cv)
-              continue;
-            const std::string &bid = cv->get_blind_id();
-            if (bid.size() == 3) {
-              this->send_query(bid);
+          if (!quiet_due_to_motion_wd) {
+            ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
+            for (auto *cv : covers_) {
+              if (!cv) continue;
+              const std::string &bid = cv->get_blind_id();
+              if (bid.size() == 3)
+                  this->send_query(bid);
             }
+          } else {
+            ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
           }
-        } else {
-          ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
-        }
       }
   }
 
