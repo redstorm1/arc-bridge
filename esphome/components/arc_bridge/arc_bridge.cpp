@@ -49,6 +49,8 @@ void ARCBridgeComponent::setup() {
   while (this->available())
     this->read();  // purge stale UART
 
+  uint32_t now = millis();
+
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
 
