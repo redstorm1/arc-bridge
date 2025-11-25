@@ -125,6 +125,11 @@ void ARCBridgeComponent::loop() {
   }
 
   // -----------------------------
+  // TX QUEUE PROCESSING
+  // -----------------------------
+  process_tx_queue_();
+  
+  // -----------------------------
   // TX WATCHDOG (movement-aware)
   // -----------------------------
   if (!this->tx_queue_.empty()) {
@@ -149,10 +154,7 @@ void ARCBridgeComponent::loop() {
       }
   }
 
-  // -----------------------------
-  // TX QUEUE PROCESSING
-  // -----------------------------
-  process_tx_queue_();
+
 }
 
 // =========================================================
