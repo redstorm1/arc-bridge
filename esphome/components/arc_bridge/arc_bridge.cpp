@@ -125,21 +125,28 @@ void ARCBridgeComponent::loop() {
   }
 
   // -----------------------------
-  // TX WATCHDOG
+  // TX WATCHDOG (movement-aware)
   // -----------------------------
   if (!this->tx_queue_.empty()) {
-    uint32_t since_rx = now - this->last_rx_millis_;
-
-    if (since_rx >= TX_WATCHDOG_MS) {
-      ESP_LOGW(TAG,
-               "TX Watchdog: No RX for %u ms while TX pending -> clearing queue",
-               since_rx);
-
-      this->tx_queue_.clear();
-
-      // push a safe global poll as a soft reset tickle
-      this->queue_tx("!000r?;");
-    }
+      uint32_t since_rx = now - this->last_rx_millis_;
+      bool quiet_due_to_motion =
+          (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
+  
+      if (since_rx >= TX_WATCHDOG_MS) {
+        ESP_LOGW(TAG,
+                 "TX Watchdog: No RX for %u ms while TX pending -> clearing queue",
+                 since_rx);
+  
+        this->tx_queue_.clear();
+  
+        if (!quiet_due_to_motion) {
+          // Safe: STM32 is idle
+          this->queue_tx("!000r?;");
+        } else {
+          // Unsafe: STM32 may still be busy with RF due to movement
+          ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
+        }
+      }
   }
 
   // -----------------------------
