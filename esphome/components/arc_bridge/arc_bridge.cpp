@@ -155,37 +155,45 @@ void ARCBridgeComponent::loop() {
   // -----------------------------
   if (!this->tx_queue_.empty()) {
 
-      // Skip watchdog entirely until first TX occurs
-      if (this->last_tx_millis_ == this->boot_millis_) {
-          // First TX hasn't happened → watchdog off
-          return;
-      }
+    // Skip watchdog entirely until first TX occurs
+    if (this->last_tx_millis_ == this->boot_millis_) {
+      // First TX hasn't happened → watchdog off
+      return;
+    }
 
-      uint32_t since_rx = now - this->last_rx_millis_;
-      uint32_t since_tx = now - this->last_tx_millis_;
-      bool quiet_due_to_motion_wd =
-          (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
+    // Use signed deltas so millis() rollover doesn't produce huge values.
+    int32_t dt_rx = (int32_t) (now - this->last_rx_millis_);
+    int32_t dt_tx = (int32_t) (now - this->last_tx_millis_);
 
-      if (since_rx >= TX_WATCHDOG_MS && since_tx >= TX_WATCHDOG_MS) {
-          ESP_LOGW(TAG,
-                  "TX Watchdog: No RX for %u ms (last TX %u ms ago) "
-                  "while TX pending -> clearing queue",
-                  since_rx, since_tx);
+    if (dt_rx < 0) dt_rx = 0;
+    if (dt_tx < 0) dt_tx = 0;
 
-          this->tx_queue_.clear();
+    bool quiet_due_to_motion_wd =
+        (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
 
-          if (!quiet_due_to_motion_wd) {
-            ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
-            for (auto *cv : covers_) {
-              if (!cv) continue;
-              const std::string &bid = cv->get_blind_id();
-              if (bid.size() == 3)
-                  this->send_query(bid);
-            }
-          } else {
-            ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
+    if ((uint32_t) dt_rx >= TX_WATCHDOG_MS &&
+        (uint32_t) dt_tx >= TX_WATCHDOG_MS) {
+
+      ESP_LOGW(TAG,
+               "TX Watchdog: No RX for %u ms (last TX %u ms ago) "
+               "while TX pending -> clearing queue",
+               (uint32_t) dt_rx, (uint32_t) dt_tx);
+
+      this->tx_queue_.clear();
+
+      if (!quiet_due_to_motion_wd) {
+        ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
+        for (auto *cv : covers_) {
+          if (!cv) continue;
+          const std::string &bid = cv->get_blind_id();
+          if (bid.size() == 3) {
+            this->send_query(bid);
           }
+        }
+      } else {
+        ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
       }
+    }
   }
 
 
