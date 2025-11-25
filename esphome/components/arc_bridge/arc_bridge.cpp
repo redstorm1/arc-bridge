@@ -147,22 +147,19 @@ void ARCBridgeComponent::loop() {
   // -----------------------------
   if (!this->tx_queue_.empty()) {
       uint32_t since_rx = now - this->last_rx_millis_;
+      uint32_t since_tx = now - this->last_tx_millis_;
       bool quiet_due_to_motion_wd =
           (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
-  
-      if (since_rx >= TX_WATCHDOG_MS) {
-        ESP_LOGW(TAG,
-                 "TX Watchdog: No RX for %u ms while TX pending -> clearing queue",
-                 since_rx);
-  
-        this->tx_queue_.clear();
-  
-        if (!quiet_due_to_motion_wd) {
-          // Safe: STM32 is idle
-          // OLD: global wake-up poll (unreliable)
-          // this->queue_tx("!000r?;");
 
-          // NEW: per-blind wake-up queries !IDr?;
+      // Only trigger if it's been "too long" since we last TX *and* last RX.
+      if (since_rx >= TX_WATCHDOG_MS && since_tx >= TX_WATCHDOG_MS) {
+        ESP_LOGW(TAG,
+                 "TX Watchdog: No RX for %u ms (last TX %u ms ago) while TX pending -> clearing queue",
+                 since_rx, since_tx);
+
+        this->tx_queue_.clear();
+
+        if (!quiet_due_to_motion_wd) {
           ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
           for (auto *cv : covers_) {
             if (!cv)
@@ -173,7 +170,6 @@ void ARCBridgeComponent::loop() {
             }
           }
         } else {
-          // Unsafe: STM32 may still be busy with RF due to movement
           ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
         }
       }
