@@ -2,56 +2,87 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
-#include "esphome/components/cover/cover.h"
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
+
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <deque>
 
 namespace esphome {
 namespace arc_bridge {
 
-class ARCBlind;
+class ARCCover;  // forward declaration
 
-class ARCBridgeComponent : public uart::UARTDevice, public Component {
+class ARCBridgeComponent : public Component, public uart::UARTDevice {
  public:
   void setup() override;
   void loop() override;
 
-  void register_blind(ARCBlind *blind);
+  // registration
+  void register_cover(const std::string &id, ARCCover *cover);
 
-  // Movement callback → used to inhibit polling
-  void blind_moved();
+  // command API
+  void send_open(const std::string &id);
+  void send_close(const std::string &id);
+  void send_stop(const std::string &id);
+  void send_move(const std::string &id, uint8_t percent);
+  void send_query(const std::string &id);
+  void send_pair_command();
+  void send_raw_command(const std::string &cmd);
 
-  void queue_command(const std::string &cmd);
-  void send_position_query(const std::string &id);
+  // sensor mapping
+  void map_lq_sensor(const std::string &id, sensor::Sensor *s);
+  void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
+
+  void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
+  void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
+
+  bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
+
+  void send_simple(const std::string &id, char cmd, const std::string &arg = "") {
+    this->send_simple_(id, cmd, arg);
+  }
 
  protected:
-  void poll_all_positions();
-  void retry_unanswered_positions();
-  void process_incoming_bytes();
-  void handle_packet(const std::string &pkt);
+  void handle_frame(const std::string &frame);
+  void parse_frame(const std::string &frame);
+  void send_simple_(const std::string &id, char command, const std::string &payload = "");
 
-  std::vector<ARCBlind *> blinds_;
-  std::string rx_buffer_;
+  // ===============================
+  // CONSTANTS (Option A ordering)
+  // ===============================
+  static const uint32_t QUERY_INTERVAL_MS = 10000;      // 10 seconds
+  static const uint32_t STARTUP_GUARD_MS  = 10000;      // 10 seconds
+  static const uint32_t TX_GAP_MS         = 800;        // safe TX spacing
+  static const uint32_t MOVEMENT_QUIET_MS = 90000;      // 90 seconds
+  static const uint32_t TX_WATCHDOG_MS    = 5000;       // 5 seconds
 
+  // ===============================
+  // INTERNAL STATE
+  // ===============================
+  std::deque<char> rx_buffer_;
   uint32_t boot_millis_{0};
-  uint32_t last_poll_millis_{0};
-  uint32_t last_move_millis_{0};
-
+  uint32_t last_query_millis_{0};
+  uint32_t last_rx_millis_{0};
+  uint32_t last_motion_millis_{0};
+  size_t query_index_{0};
   bool startup_guard_cleared_{false};
-  bool move_inhibit_active_{false};
-};
+  bool auto_poll_enabled_{true};
+  uint32_t query_interval_ms_{QUERY_INTERVAL_MS};
 
-class ARCBlind : public cover::Cover {
- public:
-  std::string blind_id_;
-  std::string name_;
+  std::vector<ARCCover *> covers_;
+  std::unordered_map<std::string, sensor::Sensor *> lq_map_;
+  std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
 
-  // State tracking for polling system
-  bool awaiting_reply_{false};
-  uint32_t last_query_time_{0};
-
-  // Called by ARCBridgeComponent when parsing packet
-  void set_position_from_motor(int pct) {
-    this->publish_state(1.0f - (pct / 100.0f));  // convert ARC to ESPHome
-  }
+  // ===============================
+  // TX QUEUE SUPPORT
+  // ===============================
+  std::deque<std::string> tx_queue_;
+  uint32_t last_tx_millis_{0};
+  void queue_tx(const std::string &frame);
+  void process_tx_queue_();
 };
 
 }  // namespace arc_bridge
