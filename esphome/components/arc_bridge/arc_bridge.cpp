@@ -52,6 +52,10 @@ void ARCBridgeComponent::setup() {
   this->boot_millis_ = millis();
   this->startup_guard_cleared_ = false;
 
+  // FIX: initialize these so watchdog doesn't fire immediately
+  this->last_tx_millis_ = now;
+  this->last_rx_millis_ = now;
+
   ESP_LOGI(TAG,
            "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms)",
            STARTUP_GUARD_MS,
