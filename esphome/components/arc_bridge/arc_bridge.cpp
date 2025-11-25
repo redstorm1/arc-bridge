@@ -51,12 +51,14 @@ void ARCBridgeComponent::setup() {
 
   uint32_t now = millis();
 
-  this->boot_millis_ = millis();
+  this->boot_millis_ = now;
   this->startup_guard_cleared_ = false;
 
-  // FIX: initialize these so watchdog doesn't fire immediately
-  this->last_tx_millis_ = now;
-  this->last_rx_millis_ = now;
+  // Initialise timing so watchdog / quiet logic don't misfire at boot
+  this->last_tx_millis_     = now;
+  this->last_rx_millis_     = now;
+  this->last_motion_millis_ = now;
+  this->last_query_millis_  = now;
 
   ESP_LOGI(TAG,
            "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms)",
@@ -151,6 +153,10 @@ void ARCBridgeComponent::loop() {
   // -----------------------------
   // TX WATCHDOG (movement-aware)
   // -----------------------------
+  
+  // Don't watchdog until we've transmitted at least once AND waited enough
+  if (last_tx_millis_ == boot_millis_) return;
+
   if (!this->tx_queue_.empty()) {
       uint32_t since_rx = now - this->last_rx_millis_;
       uint32_t since_tx = now - this->last_tx_millis_;
