@@ -32,9 +32,15 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_pair_command();
   void send_raw_command(const std::string &cmd);
 
+  // NEW: query motor voltage via !XXXpVc?;
+  void send_voltage_query(const std::string &id);
+
   // sensor mapping
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
+
+  // NEW: map a text sensor to receive the power type (AC / DC level)
+  void map_voltage_sensor(const std::string &id, text_sensor::TextSensor *s);
 
   void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
   void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
@@ -49,6 +55,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
   void send_simple_(const std::string &id, char command, const std::string &payload = "");
+
+  // NEW: helper to decode and publish pVc value
+  void handle_pvc_value_(const std::string &id, const std::string &digits);
 
   // ===============================
   // CONSTANTS (Option A ordering)
@@ -75,6 +84,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::vector<ARCCover *> covers_;
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
+
+  // NEW: map of blind id -> voltage text sensor
+  std::unordered_map<std::string, text_sensor::TextSensor *> voltage_map_;
 
   // ===============================
   // TX QUEUE SUPPORT
