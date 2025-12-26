@@ -62,18 +62,16 @@ Auto-polling now waits until the bridge’s startup guard has elapsed, preventin
 
 ```
 cover:
+  - platform: arc_bridge
+    bridge_id: arc
+    id: usz
+    device_class: shade
+    name: "Office Blind"
+    blind_id: "USZ"
+    link_quality: lq_usz
+    status: status_usz
+    power: power_usz 
 
-platform: arc
-name: "Office Blind"
-blind_id: "USZ"
-
-platform: arc
-name: "Guest Blind"
-blind_id: "ZXE"
-
-platform: arc
-name: "Living Drape"
-blind_id: "NOM"
 ```
 
 Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
@@ -91,10 +89,15 @@ unit_of_measurement: "%"
 icon: "mdi:signal"
 
 text_sensor:
+  - platform: template
+    id: status_usz
+    name: "Office Blind Status"
 
-platform: template
-id: status_usz
-name: "Office Blind Status"
+  # NEW: power-type sensors
+  - platform: template
+    id: power_usz
+    name: "Office Blind Power"
+    icon: "mdi:power-plug"
 ```
 These are automatically updated from ARC messages:
 
