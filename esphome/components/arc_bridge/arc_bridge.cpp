@@ -383,25 +383,23 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
 void ARCBridgeComponent::handle_pvc_value_(const std::string &id,
                                            const std::string &digits) {
-  // digits e.g. "01192", "00812", "00000"
-  int raw = 0;
-  try {
-    raw = std::stoi(digits);
-  } catch (...) {
-    ESP_LOGW(TAG, "[%s] pVc parse failed for '%s'", id.c_str(), digits.c_str());
+  // ESPHome build has exceptions disabled, so use strtol
+  char *endptr = nullptr;
+  long raw_val = std::strtol(digits.c_str(), &endptr, 10);
+
+  if (endptr == digits.c_str() || raw_val < 0) {
+    ESP_LOGW(TAG, "[%s] Invalid pVc digits='%s'", id.c_str(), digits.c_str());
     return;
   }
 
+  int raw = static_cast<int>(raw_val);
   std::string value_str;
 
   if (raw == 0) {
-    // Your rule: 0 ⇒ AC motor
     value_str = "AC";
   } else {
-    // Your observed scale: 01192 → 11.92 V, 00812 → 8.12 V
     float v = raw / 100.0f;
 
-    // Classify to the design voltage family (tolerant thresholds)
     if (v <= 6.0f) {
       value_str = "4.2V DC";
     } else if (v <= 10.0f) {
@@ -415,8 +413,8 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id,
   }
 
   auto it = voltage_map_.find(id);
-  if (it == voltage_map_.end() || it->second == nullptr) {
-    ESP_LOGD(TAG, "[%s] pVc=%s (%s) but no power text sensor mapped",
+  if (it == voltage_map_.end() || !it->second) {
+    ESP_LOGD(TAG, "[%s] pVc=%s (%s) but no mapped power sensor",
              id.c_str(), digits.c_str(), value_str.c_str());
     return;
   }
