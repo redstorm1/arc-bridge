@@ -36,7 +36,7 @@ async def to_code(config):
 
     bridge = await cg.get_variable(config[CONF_BRIDGE_ID])
     cg.add(var.set_bridge(bridge))
-    cg.add(var.set_id(config[CONF_BLIND_ID]))
+    cg.add(var.set_blind_id(config[CONF_BLIND_ID]))
     cg.add(bridge.register_cover(config[CONF_BLIND_ID], var))
 
     if CONF_INVERT_POSITION in config:
