@@ -11,6 +11,7 @@ CONF_BLIND_ID = "blind_id"
 CONF_LINK_QUALITY = "link_quality"
 CONF_STATUS = "status"
 CONF_INVERT_POSITION = "invert_position"
+CONF_POWER = "power"
 
 arc_bridge_ns = cg.esphome_ns.namespace("arc_bridge")
 ARCBridgeComponent = arc_bridge_ns.class_("ARCBridgeComponent", cg.Component)
@@ -23,6 +24,7 @@ CONFIG_SCHEMA = cover.cover_schema(ARCCover).extend(
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Optional(CONF_LINK_QUALITY): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_STATUS): cv.use_id(text_sensor.TextSensor),
+        cv.Optional(CONF_POWER): cv.use_id(text_sensor.TextSensor), 
         cv.Optional(CONF_INVERT_POSITION, default=False): cv.boolean,
     }
 )
@@ -47,3 +49,7 @@ async def to_code(config):
     if CONF_STATUS in config:
         st = await cg.get_variable(config[CONF_STATUS])
         cg.add(bridge.map_status_sensor(config[CONF_BLIND_ID], st))
+    
+    if CONF_POWER in config:
+        pw = await cg.get_variable(config[CONF_POWER])
+        cg.add(bridge.map_voltage_sensor(config[CONF_BLIND_ID], pw))
