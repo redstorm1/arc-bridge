@@ -406,62 +406,16 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id,
     return;
   }
 
+  // Non-zero → scaled voltage (raw is in centivolts)
   float v = raw / 100.0f;
 
-  // Anything clearly above the 3S Li-ion regime → treat as AC as well
-  if (v > 13.0f) {
-    it->second->publish_state("AC");
-    ESP_LOGD(TAG, "[%s] pVc=%.2fV (>13V) -> AC motor", id.c_str(), v);
-    return;
-  }
-
-  // Infer pack type and min/max based on voltage
-  float min_v = 0.0f;
-  float max_v = 0.0f;
-  const char *pack_label = nullptr;
-
-  if (v <= 6.0f) {
-    // 1S (4.2V) motor
-    min_v = 3.3f;
-    max_v = 4.2f;
-    pack_label = "4.2V DC";
-  } else if (v <= 10.0f) {
-    // 2S (8.4V) motor
-    min_v = 6.6f;
-    max_v = 8.4f;
-    pack_label = "8.4V DC";
-  } else {
-    // 3S (12.6V) motor
-    min_v = 9.9f;
-    max_v = 12.6f;
-    pack_label = "12.6V DC";
-  }
-
-  // Linear SOC estimate between min_v and max_v
-  float pct_f;
-  if (v <= min_v) {
-    pct_f = 0.0f;
-  } else if (v >= max_v) {
-    pct_f = 100.0f;
-  } else {
-    pct_f = (v - min_v) * 100.0f / (max_v - min_v);
-  }
-
-  if (pct_f < 0.0f)   pct_f = 0.0f;
-  if (pct_f > 100.0f) pct_f = 100.0f;
-
-  int pct = static_cast<int>(pct_f + 0.5f);  // round to nearest int
-
-  char buf[32];
-  // Format: "11.92V (85%)"
-  snprintf(buf, sizeof(buf), "%.2fV (%d%%)", v, pct);
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%.2fV", v);
 
   it->second->publish_state(buf);
 
-  ESP_LOGD(TAG,
-           "[%s] pVc raw=%s -> %.2fV, pack=%s, SOC=%d%% -> '%s'",
-           id.c_str(), digits.c_str(), v,
-           (pack_label ? pack_label : "?"), pct, buf);
+  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV -> '%s'",
+           id.c_str(), digits.c_str(), v, buf);
 }
 
 
