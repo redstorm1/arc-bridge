@@ -381,8 +381,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f", id.c_str(), pos, dbm);
 }
 
-void ARCBridgeComponent::handle_pvc_value_(const std::string &id,
-                                           const std::string &digits) {
+void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
   // Parse integer without exceptions
   char *endptr = nullptr;
   long raw_val = std::strtol(digits.c_str(), &endptr, 10);
@@ -395,27 +394,23 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id,
 
   auto it = voltage_map_.find(id);
   if (it == voltage_map_.end() || !it->second) {
-    ESP_LOGD(TAG, "[%s] pVc=%d but no mapped power sensor", id.c_str(), raw);
+    ESP_LOGD(TAG, "[%s] pVc=%d but no mapped voltage sensor", id.c_str(), raw);
     return;
   }
 
-  // 0 → AC motor
+  // 0 → AC motor; publish 0.0V but log as AC
   if (raw == 0) {
-    it->second->publish_state("AC");
-    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor", id.c_str());
+    it->second->publish_state(0.0f);
+    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V", id.c_str());
     return;
   }
 
   // Non-zero → scaled voltage (raw is in centivolts)
   float v = raw / 100.0f;
 
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%.2fV", v);
+  it->second->publish_state(v);
 
-  it->second->publish_state(buf);
-
-  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV -> '%s'",
-           id.c_str(), digits.c_str(), v, buf);
+  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), v);
 }
 
 
@@ -429,15 +424,14 @@ void ARCBridgeComponent::map_lq_sensor(const std::string &id,
   lq_map_[id] = s;
 }
 
-void ARCBridgeComponent::map_status_sensor(const std::string &id,
-                                           text_sensor::TextSensor *s) {
+void ARCBridgeComponent::map_status_sensor(const std::string &id,text_sensor::TextSensor *s) {
   status_map_[id] = s;
 }
 
 // NEW: voltage text sensor mapping
-void ARCBridgeComponent::map_voltage_sensor(const std::string &id,
-                                            text_sensor::TextSensor *s) {
+void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *s) {
   voltage_map_[id] = s;
+  ESP_LOGD(TAG, "Mapped voltage sensor for id='%s'", id.c_str());
 }
 }  // namespace arc_bridge
 }  // namespace esphome

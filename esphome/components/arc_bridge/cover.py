@@ -24,7 +24,7 @@ CONFIG_SCHEMA = cover.cover_schema(ARCCover).extend(
         cv.Required(CONF_BLIND_ID): cv.string,
         cv.Optional(CONF_LINK_QUALITY): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_STATUS): cv.use_id(text_sensor.TextSensor),
-        cv.Optional(CONF_POWER): cv.use_id(text_sensor.TextSensor), 
+        cv.Optional(CONF_POWER): cv.use_id(sensor.Sensor), 
         cv.Optional(CONF_INVERT_POSITION, default=False): cv.boolean,
     }
 )
