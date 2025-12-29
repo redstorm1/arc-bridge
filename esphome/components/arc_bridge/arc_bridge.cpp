@@ -141,6 +141,7 @@ void ARCBridgeComponent::loop() {
       const std::string &bid = cv->get_blind_id();
       if (bid.size() == 3) {
         this->send_query(bid);
+        this->send_voltage_query(bid);  // NEW
       }
     }
   }
@@ -250,6 +251,12 @@ void ARCBridgeComponent::send_query(const std::string &id) {
   send_simple_(id, 'r', "?");
 }
 
+// NEW: send !XXXpVc?;
+void ARCBridgeComponent::send_voltage_query(const std::string &id) {
+  // This builds: "!" + id + 'p' + "Vc?" + ";"
+  send_simple_(id, 'p', "Vc?");
+}
+
 void ARCBridgeComponent::send_pair_command() {
   std::string frame = "!000&;";
   queue_tx(frame);
@@ -310,6 +317,23 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   bool enp = (rest.find("Enp") != std::string::npos);
   bool enl = (rest.find("Enl") != std::string::npos);
 
+  // NEW: handle pVc replies: look for "pVc" followed by digits
+  {
+    size_t pvc_pos = rest.find("pVc");
+    if (pvc_pos != std::string::npos) {
+      size_t vstart = pvc_pos + 3;  // right after "pVc"
+      size_t vend   = vstart;
+      while (vend < rest.size() &&
+             std::isdigit(static_cast<unsigned char>(rest[vend]))) {
+        vend++;
+      }
+      if (vend > vstart) {
+        std::string digits = rest.substr(vstart, vend - vstart);
+        this->handle_pvc_value_(id, digits);
+      }
+    }
+  }
+
   size_t rpos = rest.find('r');
   if (rpos != std::string::npos)
     pos = std::atoi(rest.c_str() + rpos + 1);
@@ -357,6 +381,40 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f", id.c_str(), pos, dbm);
 }
 
+void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
+  // Parse integer without exceptions
+  char *endptr = nullptr;
+  long raw_val = std::strtol(digits.c_str(), &endptr, 10);
+  if (endptr == digits.c_str() || raw_val < 0) {
+    ESP_LOGW(TAG, "[%s] Invalid pVc digits='%s'", id.c_str(), digits.c_str());
+    return;
+  }
+
+  int raw = static_cast<int>(raw_val);
+
+  auto it = voltage_map_.find(id);
+  if (it == voltage_map_.end() || !it->second) {
+    ESP_LOGD(TAG, "[%s] pVc=%d but no mapped voltage sensor", id.c_str(), raw);
+    return;
+  }
+
+  // 0 → AC motor; publish 0.0V but log as AC
+  if (raw == 0) {
+    it->second->publish_state(0.0f);
+    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V", id.c_str());
+    return;
+  }
+
+  // Non-zero → scaled voltage (raw is in centivolts)
+  float v = raw / 100.0f;
+
+  it->second->publish_state(v);
+
+  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), v);
+}
+
+
+
 // =========================================================
 //  SENSOR MAPPING
 // =========================================================
@@ -366,10 +424,14 @@ void ARCBridgeComponent::map_lq_sensor(const std::string &id,
   lq_map_[id] = s;
 }
 
-void ARCBridgeComponent::map_status_sensor(const std::string &id,
-                                           text_sensor::TextSensor *s) {
+void ARCBridgeComponent::map_status_sensor(const std::string &id,text_sensor::TextSensor *s) {
   status_map_[id] = s;
 }
 
+// NEW: voltage text sensor mapping
+void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *s) {
+  voltage_map_[id] = s;
+  ESP_LOGD(TAG, "Mapped voltage sensor for id='%s'", id.c_str());
+}
 }  // namespace arc_bridge
 }  // namespace esphome

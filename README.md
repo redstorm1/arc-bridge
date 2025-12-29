@@ -1,6 +1,6 @@
 # ESPHome ARC Bridge Component
 
-## Status: alpha (discovery + cover control + RSSI + pairing)
+## Status: alpha – live control, RSSI, voltage reporting, pairing
 
 This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
 It allows direct control of ARC blinds without the original Pulse 2 Hub — supporting full cover control, automatic discovery, and live feedback (RSSI, status, and position).
@@ -23,78 +23,89 @@ It allows direct control of ARC blinds without the original Pulse 2 Hub — supp
 
 🧠 Designed for the ARC ASCII protocol used by Rollease Acmeda / Automate / Dooya motors
 
+⚡ Battery / DC Motor Support (via pVc query → voltage sensor)
+
 Protocol reference: Rollease Acmeda “ARC Serial Protocol via ESP32”
 
 ## ⚙️ Installation (as External Component)
 ```
 external_components:
+  - source: github://redstorm1/arc-bridge
+    refresh: 1s   # optional while iterating to force refetch
 
-source: github://redstorm1/arc-bridge
-components: [arc_bridge]
-refresh: 1s # optional while iterating to force refetch
-
+# ──────────────────────────────────────────────
+# UART (STM32 link)
+# ──────────────────────────────────────────────
 uart:
-id: arc_uart
-tx_pin: GPIO15
-rx_pin: GPIO13
-baud_rate: 115200
-parity: NONE
-stop_bits: 1
-
-arc:
-id: arc
-discovery_on_boot: true
-query_interval_ms: 10000
+  - id: rf_a
+    rx_pin: GPIO13    # ESP RX  ← STM32 TX
+    tx_pin: GPIO15    # ESP TX  → STM32 RX
+    baud_rate: 115200
+    data_bits: 8
+    parity: NONE
+    stop_bits: 1
+    rx_buffer_size: 4096
 
 arc_bridge:
-  id: arc_bridge
-  uart_id: arc_uart
-  auto_poll: true           # optional, defaults to true
-  auto_poll_interval: 10s   # optional, defaults to 10s
+  id: arc
+  uart_id: rf_a
+  auto_poll: true        # set false to disable queries entirely
+  auto_poll_interval: 180s  # accepts standard ESPHome time strings; 0 also disables polling
 ```
 
-### Auto-poll Settings
-- `auto_poll`: Enables the bridge’s automatic rotation through covers to refresh their status (default `true`). Set to `false` to disable all background queries; manual commands still work.
-- `auto_poll_interval`: Interval between each cover query, provided as any ESPHome time string (default `10s`). Lower values increase responsiveness at the cost of more UART chatter. Setting the interval to `0s` also disables polling.
+## Auto-Poll (Recommended)
+
+The bridge rotates through known blinds and queries them for position, RSSI, and availability.
+
+| Setting | Description | Default |
+|--------:|--------------|---------|
+| `auto_poll` | Enables background polling | `true` |
+| `auto_poll_interval` | Time between each blind query | `10s` |
+| `0s` | Disables polling completely | off |
+
+Auto-poll pauses automatically when a blind is moving to prevent flooding the bus.
 
 Auto-polling now waits until the bridge’s startup guard has elapsed, preventing blinds from moving immediately after a reboot.
 ## 🪟 Cover Entities
 
 ```
 cover:
+  - platform: arc_bridge
+    bridge_id: arc
+    id: usz
+    device_class: shade
+    name: "Office Blind"
+    blind_id: "USZ"
+    link_quality: lq_usz
+    status: status_usz
+    power: power_usz 
 
-platform: arc
-name: "Office Blind"
-blind_id: "USZ"
-
-platform: arc
-name: "Guest Blind"
-blind_id: "ZXE"
-
-platform: arc
-name: "Living Drape"
-blind_id: "NOM"
 ```
 
 Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
 
-## 📶 Link Quality & Status Sensors
+## Optional 📶 Link Quality, Voltage & Status Sensors
 
 Optionally expose link quality and connection state as individual sensors:
 ```
 sensor:
+  - platform: template
+    id: lq_usz
+    name: "Office Blind Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
 
-platform: template
-id: lq_usz
-name: "Office Blind Link Quality"
-unit_of_measurement: "%"
-icon: "mdi:signal"
+  - platform: template
+    id: power_usz
+    name: "Office Blind Voltage"
+    unit_of_measurement: "V" # A reading of 0.00V indicates an AC or mains-powered motor.
+    accuracy_decimals: 2
+    icon: "mdi:battery"
 
 text_sensor:
-
-platform: template
-id: status_usz
-name: "Office Blind Status"
+  - platform: template
+    id: status_usz
+    name: "Office Blind Status"
 ```
 These are automatically updated from ARC messages:
 
@@ -146,6 +157,10 @@ Position mapping: ARC 0 = open → HA 1.0, ARC 100 = closed → HA 0.0
 
 Home Assistant automatically discovers covers and the pairing button.
 Template sensors (RSSI %, Status) can be added to a Lovelace card for live signal and connection monitoring.
+
+## 💡 Known Limitations
+- No encrypted ARC+ protocol support (ASCII only)
+- Voltage % calculation is optional and user-configurable in ESPHome templates
 
 📄 License
 
