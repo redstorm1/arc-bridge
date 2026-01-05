@@ -1,5 +1,8 @@
 # ESPHome ARC Bridge Component
 
+This component is for use with the Pulse 2 Hub after installing ESPHone onto the hardware.
+https://www.geektech.co.nz/esphome-pulse-2-hub
+
 ## Status: alpha – live control, RSSI, voltage reporting, pairing
 
 This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
