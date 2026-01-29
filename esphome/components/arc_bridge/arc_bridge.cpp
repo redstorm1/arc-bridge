@@ -22,6 +22,37 @@ void ARCBridgeComponent::queue_tx(const std::string &frame) {
            (unsigned)tx_queue_.size());
 }
 
+void ARCBridgeComponent::queue_tx_front(const std::string &frame) {
+  tx_queue_.push_front(frame);
+  ESP_LOGD(TAG, "Enqueued TX (PRIORITY): %s (queue size=%u)", frame.c_str(),
+           (unsigned)tx_queue_.size());
+}
+
+static bool is_poll_frame_(const std::string &f) {
+  // Poll frames we generate:
+  //   !IDr?;
+  //   !IDpVc?;
+  return (f.find("r?;")   != std::string::npos) ||
+         (f.find("pVc?;") != std::string::npos);
+}
+
+void ARCBridgeComponent::drop_pending_polls_() {
+  if (tx_queue_.empty())
+    return;
+
+  size_t before = tx_queue_.size();
+
+  tx_queue_.erase(
+      std::remove_if(tx_queue_.begin(), tx_queue_.end(),
+                     [](const std::string &f) { return is_poll_frame_(f); }),
+      tx_queue_.end());
+
+  size_t dropped = before - tx_queue_.size();
+  if (dropped > 0) {
+    ESP_LOGD(TAG, "Dropped %u queued poll frames", (unsigned)dropped);
+  }
+}
+
 void ARCBridgeComponent::process_tx_queue_() {
   uint32_t now = millis();
 
@@ -215,25 +246,35 @@ void ARCBridgeComponent::register_cover(const std::string &id,
 // =========================================================
 
 void ARCBridgeComponent::send_simple_(const std::string &id, char command,
-                                      const std::string &payload) {
+                                      const std::string &payload,
+                                      bool priority) {
   std::string frame = "!" + id + command + payload + ";";
-  queue_tx(frame);
-  ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
+
+  if (priority) {
+    queue_tx_front(frame);
+    ESP_LOGD(TAG, "TX queued (priority) -> %s", frame.c_str());
+  } else {
+    queue_tx(frame);
+    ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
+  }
 }
 
 void ARCBridgeComponent::send_open(const std::string &id) {
   last_motion_millis_ = millis();
-  send_simple_(id, 'o');
+  drop_pending_polls_();
+  send_simple_(id, 'o', "", true);
 }
 
 void ARCBridgeComponent::send_close(const std::string &id) {
   last_motion_millis_ = millis();
-  send_simple_(id, 'c');
+  drop_pending_polls_();
+  send_simple_(id, 'c', "", true);
 }
 
 void ARCBridgeComponent::send_stop(const std::string &id) {
   last_motion_millis_ = millis();
-  send_simple_(id, 's');
+  drop_pending_polls_();
+  send_simple_(id, 's', "", true);
 }
 
 void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
@@ -241,26 +282,27 @@ void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
     percent = 100;
 
   last_motion_millis_ = millis();
-
+  drop_pending_polls_();
   char buf[4];
   snprintf(buf, sizeof(buf), "%03u", percent);
-  send_simple_(id, 'm', buf);
+  send_simple_(id, 'm', buf, true);
 }
 
 void ARCBridgeComponent::send_query(const std::string &id) {
-  send_simple_(id, 'r', "?");
+  send_simple_(id, 'r', "?", false);
 }
 
 // NEW: send !XXXpVc?;
 void ARCBridgeComponent::send_voltage_query(const std::string &id) {
   // This builds: "!" + id + 'p' + "Vc?" + ";"
-  send_simple_(id, 'p', "Vc?");
+  send_simple_(id, 'p', "Vc?", false);
 }
 
 void ARCBridgeComponent::send_pair_command() {
   std::string frame = "!000&;";
-  queue_tx(frame);
-  ESP_LOGI(TAG, "TX queued -> %s (pairing)", frame.c_str());
+  drop_pending_polls_();
+  queue_tx_front(frame);
+  ESP_LOGI(TAG, "TX queued (priority) -> %s (pairing)", frame.c_str());
 }
 
 void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
@@ -270,14 +312,12 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
   }
 
   std::string tx = cmd;
+  if (tx.front() != '!') tx.insert(0, "!");
+  if (tx.back()  != ';') tx.push_back(';');
 
-  if (tx.front() != '!')
-    tx.insert(0, "!");
-  if (tx.back() != ';')
-    tx.push_back(';');
-
-  queue_tx(tx);
-  ESP_LOGI(TAG, "TX queued (raw) -> %s", tx.c_str());
+  drop_pending_polls_();
+  queue_tx_front(tx);
+  ESP_LOGI(TAG, "TX queued (raw, priority) -> %s", tx.c_str());
 }
 
 // =========================================================
