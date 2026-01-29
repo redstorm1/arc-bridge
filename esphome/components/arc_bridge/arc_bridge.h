@@ -54,7 +54,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
  protected:
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
-  void send_simple_(const std::string &id, char command, const std::string &payload = "");
+  void send_simple_(const std::string &id, char command, const std::string &payload = "", bool priority = false);
+
 
   // NEW: helper to decode and publish pVc value
   void handle_pvc_value_(const std::string &id, const std::string &digits);
@@ -94,6 +95,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::deque<std::string> tx_queue_;
   uint32_t last_tx_millis_{0};
   void queue_tx(const std::string &frame);
+  void queue_tx_front(const std::string &frame);   // NEW: priority enqueue
+  void drop_pending_polls_();                      // NEW: drop queued r?/pVc? frames
   void process_tx_queue_();
 };
 
