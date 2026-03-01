@@ -81,7 +81,7 @@ cover:
     blind_id: "USZ"
     link_quality: lq_usz
     status: status_usz
-    power: power_usz 
+    voltage: voltage_usz 
 
 ```
 
@@ -99,7 +99,7 @@ sensor:
     icon: "mdi:signal"
 
   - platform: template
-    id: power_usz
+    id: voltage_usz
     name: "Office Blind Voltage"
     unit_of_measurement: "V" # A reading of 0.00V indicates an AC or mains-powered motor.
     accuracy_decimals: 2
