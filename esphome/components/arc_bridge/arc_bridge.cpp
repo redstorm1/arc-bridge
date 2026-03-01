@@ -391,18 +391,18 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   auto it_status = status_map_.find(id);
 
   if (enl) {
-    if (it_status->second) it_status->second->publish_state("unavailable");
-    if (it_lq->second)     it_lq->second->publish_state(NAN);
+    if (it_status != status_map_.end() && it_status->second) it_status->second->publish_state("unavailable");
+    if (it_lq != lq_map_.end() && it_lq->second)     it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Lost link", id.c_str());
   }
   else if (enp) {
-    if (it_status->second) it_status->second->publish_state("unavailable");
-    if (it_lq->second)     it_lq->second->publish_state(NAN);
+    if (it_status != status_map_.end() && it_status->second) it_status->second->publish_state("unavailable");
+    if (it_lq != lq_map_.end() && it_lq->second)     it_lq->second->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Not paired", id.c_str());
   }
   else if (!std::isnan(dbm)) {
-    if (it_lq->second)     it_lq->second->publish_state(dbm);
-    if (it_status->second) it_status->second->publish_state("Online");
+    if (it_lq != lq_map_.end() && it_lq->second)     it_lq->second->publish_state(dbm);
+    if (it_status != status_map_.end() && it_status->second) it_status->second->publish_state("Online");
   }
 
   for (auto *cv : covers_) {
