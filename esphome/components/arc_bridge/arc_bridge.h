@@ -85,8 +85,6 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::vector<ARCCover *> covers_;
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
-
-  // NEW: map of blind id -> voltage text sensor
   std::unordered_map<std::string, sensor::Sensor *> voltage_map_;
 
   // ===============================

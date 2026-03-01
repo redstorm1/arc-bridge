@@ -479,10 +479,8 @@ void ARCBridgeComponent::map_status_sensor(const std::string &id,text_sensor::Te
   status_map_[id] = s;
 }
 
-// NEW: voltage text sensor mapping
 void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *s) {
   voltage_map_[id] = s;
-  ESP_LOGD(TAG, "Mapped voltage sensor for id='%s'", id.c_str());
 }
 }  // namespace arc_bridge
 }  // namespace esphome
