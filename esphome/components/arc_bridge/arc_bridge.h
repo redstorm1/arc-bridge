@@ -29,18 +29,25 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_stop(const std::string &id);
   void send_move(const std::string &id, uint8_t percent);
   void send_query(const std::string &id);
+  void send_query_all();
   void send_pair_command();
   void send_raw_command(const std::string &cmd);
+  void send_favorite(const std::string &id);
+  void send_jog_open(const std::string &id);
+  void send_jog_close(const std::string &id);
 
-  // NEW: query motor voltage via !XXXpVc?;
   void send_voltage_query(const std::string &id);
+  void send_version_query(const std::string &id);
+  void send_speed_query(const std::string &id);
+  void send_limits_query(const std::string &id);
 
   // sensor mapping
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
-
-  // NEW: map a sensor to receive the motor voltage
   void map_voltage_sensor(const std::string &id, sensor::Sensor *s);
+  void map_version_sensor(const std::string &id, text_sensor::TextSensor *s);
+  void map_speed_sensor(const std::string &id, sensor::Sensor *s);
+  void map_limits_sensor(const std::string &id, text_sensor::TextSensor *s);
 
   void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
   void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
@@ -55,9 +62,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
   void send_simple_(const std::string &id, char command, const std::string &payload = "", bool priority = false);
-
-
-  // NEW: helper to decode and publish pVc value
+  void enqueue_queries_for_id_(const std::string &id, bool force_static);
   void handle_pvc_value_(const std::string &id, const std::string &digits);
 
   // ===============================
@@ -83,11 +88,13 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   uint32_t query_interval_ms_{QUERY_INTERVAL_MS};
 
   std::vector<ARCCover *> covers_;
+  std::unordered_map<std::string, ARCCover *> cover_map_;
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
-
-  // NEW: map of blind id -> voltage text sensor
   std::unordered_map<std::string, sensor::Sensor *> voltage_map_;
+  std::unordered_map<std::string, text_sensor::TextSensor *> version_map_;
+  std::unordered_map<std::string, sensor::Sensor *> speed_map_;
+  std::unordered_map<std::string, text_sensor::TextSensor *> limits_map_;
 
   // ===============================
   // TX QUEUE SUPPORT
@@ -95,8 +102,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::deque<std::string> tx_queue_;
   uint32_t last_tx_millis_{0};
   void queue_tx(const std::string &frame);
-  void queue_tx_front(const std::string &frame);   // NEW: priority enqueue
-  void drop_pending_polls_();                      // NEW: drop queued r?/pVc? frames
+  void queue_tx_front(const std::string &frame);
+  void drop_pending_polls_();
   void process_tx_queue_();
 };
 

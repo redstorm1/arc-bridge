@@ -1,37 +1,19 @@
 # ESPHome ARC Bridge Component
 
-This component is for use with the Pulse 2 Hub after installing ESPHome onto the hardware.
+This component is for use with the Pulse 2 Hub after installing ESPHome onto the hardware:
 https://www.geektech.co.nz/esphome-pulse-2-hub
 
-## Status: live control, RSSI, voltage reporting, pairing
+It talks to the Pulse 2 board firmware over the onboard UART bridge using 3-character blind IDs. It is **not a raw Pulse 1 RS485 implementation**, so this repo intentionally stays Pulse 2/UART-first even when it borrows safe query ideas from the Pulse 1 protocol reference.
 
-This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
-It allows direct control of ARC blinds without the original Pulse 2 Hub — supporting full cover control, automatic discovery, and live feedback (RSSI, status, and position).
+## Features
 
-✨ Features
+- Cover control for `open`, `close`, `stop`, and `set_position`
+- Round-robin auto-polling for per-blind position updates
+- Optional per-blind sensors for link quality, status, voltage, speed, version, and limits state
+- Safe manual bridge actions for pairing, refresh, favorite position, and jog open/close
+- ESPHome support on both `esp-idf` and Arduino
 
-✅ Full cover entity control (open / close / stop / move to %)
-
-🔍 Bus discovery and polling (!000r?; or !000V?;)
-
-📡 RSSI reporting (in dBm and %)
-
-🟢 Status tracking (Online, Offline, Not paired)
-
-🔄 Automatic availability updates (via Enl / Enp)
-
-🔘 Pairing command button (!000&;)
-
-🧩 Template sensor integration for link quality and status per blind
-
-🧠 Designed for the ARC ASCII protocol used by Rollease Acmeda / Automate / Dooya motors
-
-⚡ Battery / DC Motor Support (via pVc query → voltage sensor)
-
-Protocol reference: Rollease Acmeda “ARC Serial Protocol via ESP32”
-
-## ⚙️ Installation (as External Component)
-The component works with both ESPHome ESP32 frameworks. The example below uses `esp-idf`, which is now the recommended starting point. Existing Arduino-based ESPHome configs remain supported, and fresh Arduino setups should use `framework: { type: arduino, version: recommended }`.
+## Installation
 
 ```yaml
 esp32:
@@ -41,15 +23,12 @@ esp32:
 
 external_components:
   - source: github://redstorm1/arc-bridge
-    refresh: 1s   # optional while iterating to force refetch
+    refresh: 1s
 
-# ──────────────────────────────────────────────
-# UART (STM32 link)
-# ──────────────────────────────────────────────
 uart:
   - id: rf_a
-    rx_pin: GPIO13    # ESP RX  ← STM32 TX
-    tx_pin: GPIO15    # ESP TX  → STM32 RX
+    rx_pin: GPIO13
+    tx_pin: GPIO15
     baud_rate: 115200
     data_bits: 8
     parity: NONE
@@ -59,24 +38,13 @@ uart:
 arc_bridge:
   id: arc
   uart_id: rf_a
-  auto_poll: true        # set false to disable queries entirely
-  auto_poll_interval: 180s  # accepts standard ESPHome time strings; 0 also disables polling
+  auto_poll: true
+  auto_poll_interval: 10s
 ```
 
-## Auto-Poll (Recommended)
+`auto_poll_interval` is the time between each blind query, not a full sweep. The bridge polls one blind at a time in round-robin order so larger installs do not burst the UART bus every cycle.
 
-The bridge rotates through known blinds and queries them for position, RSSI, and availability.
-
-| Setting | Description | Default |
-|--------:|--------------|---------|
-| `auto_poll` | Enables background polling | `true` |
-| `auto_poll_interval` | Time between each blind query | `10s` |
-| `0s` | Disables polling completely | off |
-
-Auto-poll pauses automatically when a blind is moving to prevent flooding the bus.
-
-Auto-polling now waits until the bridge’s startup guard has elapsed, preventing blinds from moving immediately after a reboot.
-## 🪟 Cover Entities
+## Cover Configuration
 
 ```yaml
 cover:
@@ -88,16 +56,16 @@ cover:
     blind_id: "USZ"
     link_quality: lq_usz
     status: status_usz
+    version: version_usz
+    speed: speed_usz
+    limits: limits_usz
     voltage: voltage_usz
-
 ```
 
-Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
-New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
+Each cover supports open, close, stop, and set position. New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
 
-## Optional 📶 Link Quality, Voltage & Status Sensors
+## Optional Sensors
 
-Optionally expose link quality and connection state as individual sensors:
 ```yaml
 sensor:
   - platform: template
@@ -107,9 +75,15 @@ sensor:
     icon: "mdi:signal"
 
   - platform: template
+    id: speed_usz
+    name: "Office Blind Speed"
+    unit_of_measurement: "rpm"
+    icon: "mdi:speedometer"
+
+  - platform: template
     id: voltage_usz
     name: "Office Blind Voltage"
-    unit_of_measurement: "V" # A reading of 0.00V indicates an AC or mains-powered motor.
+    unit_of_measurement: "V"
     accuracy_decimals: 2
     icon: "mdi:battery"
 
@@ -117,61 +91,78 @@ text_sensor:
   - platform: template
     id: status_usz
     name: "Office Blind Status"
+
+  - platform: template
+    id: version_usz
+    name: "Office Blind Version"
+
+  - platform: template
+    id: limits_usz
+    name: "Office Blind Limits"
 ```
-These are automatically updated from ARC messages:
 
-Frame Type	Example	Action
-RSSI Report	!USZr100b180,RA6;	Updates position to 100% and RSSI ≈ −90 dBm (~17%) → Status = Online
-Lost Link	!USZEnl;	Clears link quality and sets status = Offline
-Not Paired	!USZEnp;	Clears link quality and sets status = Not Paired
+Status values currently include `Online`, `Offline`, `Not Paired`, and `No Position`.
 
-RSSI scaling: −100 dBm = 0 % · −40 dBm = 100 %
+`version` publishes the decoded motor type and version, for example `AC v2.1`.
 
-## 🔘 Pairing Button
+`limits` publishes human-readable values:
 
-You can trigger the blind pairing process directly from ESPHome or Home Assistant:
+- `Unset`
+- `Upper/Lower Set`
+- `Upper/Lower/Preferred Set`
+
+A voltage reading of `0.00 V` indicates an AC or mains-powered motor.
+
+## Manual Actions
+
+Use template buttons or lambdas for safe manual actions instead of relying on undocumented services.
+
 ```yaml
 button:
   - platform: template
     name: "ARC Pairing"
-    icon: "mdi:link-plus"
     on_press:
       - lambda: |-
-          id(arc)->send_simple("000", '&', "");
+          id(arc)->send_pair_command();
+
+  - platform: template
+    name: "ARC Query All"
+    on_press:
+      - lambda: |-
+          id(arc)->send_query_all();
+
+  - platform: template
+    name: "Office Blind Favorite"
+    on_press:
+      - lambda: |-
+          id(arc)->send_favorite("USZ");
+
+  - platform: template
+    name: "Office Blind Jog Open"
+    on_press:
+      - lambda: |-
+          id(arc)->send_jog_open("USZ");
+
+  - platform: template
+    name: "Office Blind Jog Close"
+    on_press:
+      - lambda: |-
+          id(arc)->send_jog_close("USZ");
 ```
-This sends !000&; onto the bus to enter pairing mode.
 
-## 🧠 Services (via ESPHome API)
-Service	Description
-arc_start_discovery	Start periodic discovery broadcast
-arc_stop_discovery	Stop discovery loop
-arc_query_all	Query all known covers immediately
-arc_pair	Send pairing (!000&;)
+## Protocol Notes
 
-Accessible from Home Assistant → Developer Tools → Services.
+- The component understands position replies such as `!USZr100b180;` and in-motion replies such as `!USZ<09b00;`
+- Voltage uses `pVc`, speed uses `pSc`, limits use `pP`, and version uses `v?`
+- Lost-link `Enl` and not-paired `Enp` states are handled distinctly
+- The code does not expose destructive Pulse 1-style admin commands such as address rewrites, resets, or factory defaults as first-class YAML features
 
-## 🧩 Protocol Details
+## Limitations
 
-Standard frame format: !<id><command><data>;
+- No encrypted ARC+ protocol support
+- No raw Pulse 1 hub-address mode such as `!XXXDYYY...;`
+- Static values like version and limits are only refreshed automatically when first discovered or when `send_query_all()` is called
 
-Examples:
-!USZr100b180,RA6; → Blind USZ, position 100, RSSI −90 dBm
-!USZEnl; → Lost link
-!USZEnp; → Not paired
-
-Usable RSSI range: −100 dBm (bad) → −40 dBm (excellent)
-Position mapping: ARC 0 = open → HA 1.0, ARC 100 = closed → HA 0.0
-
-## 🧰 Example Dashboard Layout
-
-Home Assistant automatically discovers covers and the pairing button.
-Template sensors (RSSI %, Status) can be added to a Lovelace card for live signal and connection monitoring.
-
-## 💡 Known Limitations
-- No encrypted ARC+ protocol support (ASCII only)
-- Voltage % calculation is optional and user-configurable in ESPHome templates
-
-📄 License
+## License
 
 MIT License
-© 2025 Redstorm
