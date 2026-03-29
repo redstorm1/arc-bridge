@@ -88,11 +88,12 @@ cover:
     blind_id: "USZ"
     link_quality: lq_usz
     status: status_usz
-    power: power_usz 
+    voltage: voltage_usz
 
 ```
 
 Each cover supports open, close, stop, and set position (0 = open, 100 = closed).
+New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
 
 ## Optional 📶 Link Quality, Voltage & Status Sensors
 
@@ -106,7 +107,7 @@ sensor:
     icon: "mdi:signal"
 
   - platform: template
-    id: power_usz
+    id: voltage_usz
     name: "Office Blind Voltage"
     unit_of_measurement: "V" # A reading of 0.00V indicates an AC or mains-powered motor.
     accuracy_decimals: 2

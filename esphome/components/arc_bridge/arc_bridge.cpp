@@ -389,20 +389,23 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   auto it_lq = lq_map_.find(id);
   auto it_status = status_map_.find(id);
+  sensor::Sensor *lq_sensor = (it_lq != lq_map_.end()) ? it_lq->second : nullptr;
+  text_sensor::TextSensor *status_sensor =
+      (it_status != status_map_.end()) ? it_status->second : nullptr;
 
   if (enl) {
-    if (it_status->second) it_status->second->publish_state("unavailable");
-    if (it_lq->second)     it_lq->second->publish_state(NAN);
+    if (status_sensor) status_sensor->publish_state("unavailable");
+    if (lq_sensor)     lq_sensor->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Lost link", id.c_str());
   }
   else if (enp) {
-    if (it_status->second) it_status->second->publish_state("unavailable");
-    if (it_lq->second)     it_lq->second->publish_state(NAN);
+    if (status_sensor) status_sensor->publish_state("unavailable");
+    if (lq_sensor)     lq_sensor->publish_state(NAN);
     ESP_LOGW(TAG, "[%s] Not paired", id.c_str());
   }
   else if (!std::isnan(dbm)) {
-    if (it_lq->second)     it_lq->second->publish_state(dbm);
-    if (it_status->second) it_status->second->publish_state("Online");
+    if (lq_sensor)     lq_sensor->publish_state(dbm);
+    if (status_sensor) status_sensor->publish_state("Online");
   }
 
   for (auto *cv : covers_) {
