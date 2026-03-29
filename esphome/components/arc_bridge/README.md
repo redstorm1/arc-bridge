@@ -262,6 +262,10 @@ cover:
     link_quality: lq_mlt
     status: status_mlt
 
+# If you expose the optional motor voltage sensor on a cover, prefer
+# `voltage:` in new configs. The legacy `power:` key remains supported
+# for backwards compatibility.
+
 sensor:
   - platform: template
     id: lq_usz
