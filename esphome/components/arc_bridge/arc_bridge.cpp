@@ -1,8 +1,8 @@
 #include "arc_bridge.h"
 #include "arc_cover.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
-#include <Arduino.h>
 #include <cctype>
 #include <cstdio>
 #include <algorithm>

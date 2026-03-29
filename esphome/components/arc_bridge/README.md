@@ -20,7 +20,6 @@ This external component allows direct integration of **Dooya ARC / Pulse 2** RF 
 ## Example YAML
 
 ```yaml
-
 esphome:
   name: pulse2hubdev
   friendly_name: pulse2hubdev
@@ -37,8 +36,7 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
-    version: recommended
+    type: esp-idf
 
 logger:
   level: DEBUG
@@ -313,4 +311,6 @@ text_sensor:
   - platform: template
     id: status_mlt
     name: "Living Door Status"
-    ```
+```
+
+This component also remains compatible with ESPHome on the Arduino framework. If you already have a working Arduino-based node, you can keep that setup and reuse the same `arc_bridge`, `bridge_id`, and `uart_id` configuration. For a fresh Arduino-based setup, use `framework: { type: arduino, version: recommended }`.

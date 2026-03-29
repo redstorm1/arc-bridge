@@ -1,6 +1,6 @@
 # ESPHome ARC Bridge Component
 
-This component is for use with the Pulse 2 Hub after installing ESPHone onto the hardware.
+This component is for use with the Pulse 2 Hub after installing ESPHome onto the hardware.
 https://www.geektech.co.nz/esphome-pulse-2-hub
 
 ## Status: live control, RSSI, voltage reporting, pairing
@@ -31,7 +31,14 @@ It allows direct control of ARC blinds without the original Pulse 2 Hub — supp
 Protocol reference: Rollease Acmeda “ARC Serial Protocol via ESP32”
 
 ## ⚙️ Installation (as External Component)
-```
+The component works with both ESPHome ESP32 frameworks. The example below uses `esp-idf`, which is now the recommended starting point. Existing Arduino-based ESPHome configs remain supported, and fresh Arduino setups should use `framework: { type: arduino, version: recommended }`.
+
+```yaml
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
 external_components:
   - source: github://redstorm1/arc-bridge
     refresh: 1s   # optional while iterating to force refetch
@@ -71,7 +78,7 @@ Auto-poll pauses automatically when a blind is moving to prevent flooding the bu
 Auto-polling now waits until the bridge’s startup guard has elapsed, preventing blinds from moving immediately after a reboot.
 ## 🪟 Cover Entities
 
-```
+```yaml
 cover:
   - platform: arc_bridge
     bridge_id: arc
@@ -90,7 +97,7 @@ Each cover supports open, close, stop, and set position (0 = open, 100 = closed)
 ## Optional 📶 Link Quality, Voltage & Status Sensors
 
 Optionally expose link quality and connection state as individual sensors:
-```
+```yaml
 sensor:
   - platform: template
     id: lq_usz
@@ -122,16 +129,14 @@ RSSI scaling: −100 dBm = 0 % · −40 dBm = 100 %
 ## 🔘 Pairing Button
 
 You can trigger the blind pairing process directly from ESPHome or Home Assistant:
-```
+```yaml
 button:
-
-platform: template
-name: "ARC Pairing"
-icon: "mdi:link-plus"
-on_press:
-
-lambda: |-
-id(arc)->send_simple("000", '&', "");
+  - platform: template
+    name: "ARC Pairing"
+    icon: "mdi:link-plus"
+    on_press:
+      - lambda: |-
+          id(arc)->send_simple("000", '&', "");
 ```
 This sends !000&; onto the bus to enter pairing mode.
 
