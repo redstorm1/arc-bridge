@@ -25,7 +25,7 @@ void ARCCover::publish_raw_position(int device_pos) {
     return;
   }
 
-  // Compute HA position (invert for 0=open, 100=closed).
+  // Compute HA position (invert for 0=open, 100=closed)
   float ha_pos = 1.0f - (static_cast<float>(device_pos) / 100.0f);
   // Sanity check.
   if (ha_pos < 0.0f || ha_pos > 1.0f || std::isnan(ha_pos)) {
@@ -34,7 +34,7 @@ void ARCCover::publish_raw_position(int device_pos) {
     return;
   }
 
-  // Avoid re-publishing unchanged values.
+  // Avoid re-publishing unchanged values
   if (this->has_state() && !std::isnan(this->position) &&
       fabs(this->position - ha_pos) < 0.005f) {
     ESP_LOGV(TAG, "[%s] ha_pos=%.2f unchanged -> no publish",
@@ -42,7 +42,7 @@ void ARCCover::publish_raw_position(int device_pos) {
     return;
   }
 
-  // All good - restore availability and publish.
+  // All good - restore availability and publish
   this->last_known_pos_ = device_pos;
   this->status_clear_warning();
   this->set_has_state(true);
@@ -55,7 +55,7 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::set_available(bool available) {
   if (!available) {
-    // Mark the entity unavailable using the component status flag.
+    // Mark the entity unavailable using the component status flag
     this->status_set_warning();
     this->current_operation = cover::COVER_OPERATION_IDLE;
     this->position = NAN;
@@ -80,7 +80,7 @@ void ARCCover::control(const cover::CoverCall &call) {
     return;
   }
 
-  // Prevent any movement during startup guard.
+  // Prevent any movement during startup guard
   if (!this->bridge_->is_startup_guard_cleared()) {
     ESP_LOGW(TAG, "[%s] Ignoring command during startup guard period", this->blind_id_.c_str());
     return;

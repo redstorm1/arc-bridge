@@ -131,7 +131,7 @@ void ARCBridgeComponent::drop_pending_polls_() {
     return;
   }
 
-  // Poll/query frames are tracked explicitly on the queue item.
+  // Poll/query frames are tracked explicitly on the queue item
   const size_t before = this->tx_queue_.size();
   drop_pending_poll_items(this->tx_queue_);
 
@@ -149,7 +149,7 @@ void ARCBridgeComponent::process_tx_queue_() {
   }
 
   const TxQueueItem item = this->tx_queue_.front();
-  // Enforce safe ARC timing using the configured per-bridge motion gap.
+  // Enforce safe ARC timing using the configured per-bridge motion gap
   const uint32_t required_gap = tx_gap_ms_for(item.pacing_class, this->motion_tx_gap_ms_);
   if (now - this->last_tx_millis_ < required_gap) {
     return;
@@ -177,7 +177,7 @@ void ARCBridgeComponent::setup() {
 
   this->boot_millis_ = now;
   this->startup_guard_cleared_ = false;
-  // Initialize timing so watchdog and quiet-time logic do not misfire at boot.
+  // Initialize timing so watchdog and quiet-time logic do not misfire at boot
   this->last_tx_millis_ = now;
   this->last_rx_millis_ = now;
   this->last_motion_millis_ = now;
@@ -263,7 +263,7 @@ void ARCBridgeComponent::loop() {
         continue;
       }
 
-      // Query one blind at a time so large installs do not burst the UART bus.
+      // Query one blind at a time so large installs do not burst the UART bus
       ESP_LOGD(TAG, "Auto-poll: querying blind %s", blind_id.c_str());
       this->enqueue_queries_for_id_(blind_id, false);
       break;
@@ -283,12 +283,12 @@ void ARCBridgeComponent::loop() {
     return;
   }
 
-  // Skip watchdog entirely until the first TX occurs.
+  // Skip watchdog entirely until the first TX occurs
   if (this->last_tx_millis_ == this->boot_millis_) {
     return;
   }
 
-  // Use signed deltas so millis() rollover does not produce huge values.
+  // Use signed deltas so millis() rollover does not produce huge values
   int32_t dt_rx = static_cast<int32_t>(now - this->last_rx_millis_);
   int32_t dt_tx = static_cast<int32_t>(now - this->last_tx_millis_);
   if (dt_rx < 0) {
@@ -745,7 +745,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 }
 
 void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
-  // Parse integer without exceptions.
+  // Parse integer without exceptions
   char *endptr = nullptr;
   const long raw_value = std::strtol(digits.c_str(), &endptr, 10);
   if (endptr == digits.c_str() || raw_value < 0) {
@@ -760,7 +760,7 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
     return;
   }
 
-  // 0 means an AC or mains-powered motor.
+  // 0 → AC motor; publish 0.0V but log as AC
   if (raw_value == 0) {
     if (sensor != nullptr) {
       sensor->publish_state(0.0f);
@@ -773,7 +773,7 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
     return;
   }
 
-  // Non-zero values are reported in centivolts.
+  // Non-zero → scaled voltage (raw is in centivolts)
   const float volts = static_cast<float>(raw_value) / 100.0f;
   if (sensor != nullptr) {
     sensor->publish_state(volts);
