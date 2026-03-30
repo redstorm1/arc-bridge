@@ -8,8 +8,9 @@ It talks to the Pulse 2 board firmware over the onboard UART bridge using 3-char
 ## Features
 
 - Cover control for `open`, `close`, `stop`, and `set_position`
+- First-class group covers built from existing `arc_bridge` covers
 - Round-robin auto-polling for per-blind position updates
-- Optional per-blind sensors for link quality, status, voltage, speed, version, and limits state
+- Optional per-blind sensors for link quality, status, voltage, derived battery level, speed, version, and limits state
 - Safe manual bridge actions for pairing, refresh, favorite position, and jog open/close
 - ESPHome support on both `esp-idf` and Arduino
 
@@ -23,6 +24,7 @@ esp32:
 
 external_components:
   - source: github://redstorm1/arc-bridge
+    components: [arc_bridge, arc_bridge_group]
     refresh: 1s
 
 uart:
@@ -60,9 +62,37 @@ cover:
     speed: speed_usz
     limits: limits_usz
     voltage: voltage_usz
+    battery_level: battery_usz
 ```
 
 Each cover supports open, close, stop, and set position. New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
+
+## Group Covers
+
+```yaml
+cover:
+  - platform: arc_bridge_group
+    id: living_room
+    name: "Living Room"
+    members: [usz, khn, hw4, j8u]
+```
+
+`members:` references existing `arc_bridge` cover IDs, so the group behaves like a normal ESPHome cover without `lambda` fan-out.
+
+```yaml
+button:
+  - platform: template
+    name: "Living Room to 50%"
+    on_press:
+      - cover.control:
+          id: living_room
+          position: 50%
+
+  - platform: template
+    name: "Open Living Room"
+    on_press:
+      - cover.open: living_room
+```
 
 ## Optional Sensors
 
@@ -86,6 +116,13 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 2
     icon: "mdi:battery"
+
+  - platform: template
+    id: battery_usz
+    name: "Office Blind Battery"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
 
 text_sensor:
   - platform: template
@@ -112,6 +149,8 @@ Status values currently include `Online`, `Offline`, `Not Paired`, and `No Posit
 - `Upper/Lower/Preferred Set`
 
 A voltage reading of `0.00 V` indicates an AC or mains-powered motor.
+
+`battery_level` is a derived estimate from `pVc` using a fixed 3S Li-ion curve. It is a convenience estimate rather than a precise fuel gauge, and AC motors leave it unavailable.
 
 ## Manual Actions
 

@@ -3,10 +3,12 @@ esphome_component(
   SRCS
     "arc_bridge.cpp"
     "arc_cover.cpp"
+    "battery.cpp"
     "protocol.cpp"
   HDRS
     "arc_bridge.h"
     "arc_cover.h"
+    "battery.h"
     "protocol.h"
   REQUIRES
     "uart"

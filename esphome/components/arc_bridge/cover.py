@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import cover, sensor, text_sensor
-from esphome.const import CONF_ID, CONF_POWER, CONF_VOLTAGE
+from esphome.const import CONF_BATTERY_LEVEL, CONF_ID, CONF_POWER, CONF_VOLTAGE
 
 DEPENDENCIES = ["uart"]
 AUTO_LOAD = ["cover", "sensor", "text_sensor"]
@@ -29,6 +29,7 @@ CONFIG_SCHEMA = cover.cover_schema(ARCCover).extend(
         cv.Optional(CONF_VERSION): cv.use_id(text_sensor.TextSensor),
         cv.Optional(CONF_SPEED): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_LIMITS): cv.use_id(text_sensor.TextSensor),
+        cv.Optional(CONF_BATTERY_LEVEL): cv.use_id(sensor.Sensor),
         cv.Exclusive(CONF_POWER, "voltage_sensor"): cv.use_id(sensor.Sensor),
         cv.Exclusive(CONF_VOLTAGE, "voltage_sensor"): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_INVERT_POSITION, default=False): cv.boolean,
@@ -67,8 +68,12 @@ async def to_code(config):
     if CONF_LIMITS in config:
         limits_sensor = await cg.get_variable(config[CONF_LIMITS])
         cg.add(bridge.map_limits_sensor(config[CONF_BLIND_ID], limits_sensor))
-    
+
     voltage_sensor_id = config.get(CONF_VOLTAGE, config.get(CONF_POWER))
     if voltage_sensor_id is not None:
         voltage_sensor = await cg.get_variable(voltage_sensor_id)
         cg.add(bridge.map_voltage_sensor(config[CONF_BLIND_ID], voltage_sensor))
+
+    if CONF_BATTERY_LEVEL in config:
+        battery_sensor = await cg.get_variable(config[CONF_BATTERY_LEVEL])
+        cg.add(bridge.map_battery_level_sensor(config[CONF_BLIND_ID], battery_sensor))

@@ -26,5 +26,8 @@ jobs:
       - name: Run protocol parser test
         run: python tests/run_protocol_parser_test.py
 
+      - name: Run battery curve test
+        run: python tests/run_battery_curve_test.py
+
       - name: Validate ESPHome configs
         run: python tests/run_component_validation.py

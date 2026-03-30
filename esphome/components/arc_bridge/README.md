@@ -7,8 +7,9 @@ It talks to the Pulse 2 board firmware over UART using 3-character blind IDs and
 ## Highlights
 
 - Per-blind cover control
+- First-class group covers using existing `arc_bridge` covers as members
 - Round-robin auto-polling
-- Optional link-quality, status, voltage, speed, version, and limits sensors
+- Optional link-quality, status, voltage, derived battery level, speed, version, and limits sensors
 - Safe manual actions for pairing, refresh, favorite position, and jog control
 - Support for both `esp-idf` and Arduino ESPHome frameworks
 
@@ -22,7 +23,7 @@ esp32:
 
 external_components:
   - source: github://redstorm1/arc-bridge
-    components: [arc_bridge]
+    components: [arc_bridge, arc_bridge_group]
     refresh: 1s
 
 uart:
@@ -60,9 +61,37 @@ cover:
     speed: speed_usz
     limits: limits_usz
     power: power_usz
+    battery_level: battery_usz
 ```
 
 `power:` is still supported for backwards compatibility. New configs can also use `voltage:`.
+
+## Group Cover Example
+
+```yaml
+cover:
+  - platform: arc_bridge_group
+    id: living_room
+    name: "Living Room"
+    members: [usz, khn, hw4, j8u]
+```
+
+`members:` takes existing `arc_bridge` cover IDs, so the group can be controlled with standard ESPHome cover actions instead of lambda fan-out.
+
+```yaml
+button:
+  - platform: template
+    name: "Living Room to 50%"
+    on_press:
+      - cover.control:
+          id: living_room
+          position: 50%
+
+  - platform: template
+    name: "Open Living Room"
+    on_press:
+      - cover.open: living_room
+```
 
 ## Optional Sensors
 
@@ -87,6 +116,13 @@ sensor:
     accuracy_decimals: 2
     icon: "mdi:battery"
 
+  - platform: template
+    id: battery_usz
+    name: "Office Blind Battery"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
+
 text_sensor:
   - platform: template
     id: status_usz
@@ -107,6 +143,7 @@ Runtime values:
 - `version`: decoded motor type/version such as `AC v2.1`
 - `limits`: `Unset`, `Upper/Lower Set`, `Upper/Lower/Preferred Set`
 - `power` / `voltage`: `0.00 V` means AC or mains-powered
+- `battery_level`: derived 3S Li-ion estimate from `pVc`; AC motors remain unavailable
 
 ## Manual Actions
 

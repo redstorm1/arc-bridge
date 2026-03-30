@@ -45,6 +45,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void map_lq_sensor(const std::string &id, sensor::Sensor *s);
   void map_status_sensor(const std::string &id, text_sensor::TextSensor *s);
   void map_voltage_sensor(const std::string &id, sensor::Sensor *s);
+  void map_battery_level_sensor(const std::string &id, sensor::Sensor *s);
   void map_version_sensor(const std::string &id, text_sensor::TextSensor *s);
   void map_speed_sensor(const std::string &id, sensor::Sensor *s);
   void map_limits_sensor(const std::string &id, text_sensor::TextSensor *s);
@@ -92,6 +93,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::unordered_map<std::string, sensor::Sensor *> lq_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> status_map_;
   std::unordered_map<std::string, sensor::Sensor *> voltage_map_;
+  std::unordered_map<std::string, sensor::Sensor *> battery_level_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> version_map_;
   std::unordered_map<std::string, sensor::Sensor *> speed_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> limits_map_;

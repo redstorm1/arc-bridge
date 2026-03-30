@@ -1,5 +1,6 @@
 #include "arc_bridge.h"
 
+#include "battery.h"
 #include "arc_cover.h"
 #include "protocol.h"
 #include "esphome/core/hal.h"
@@ -419,7 +420,8 @@ void ARCBridgeComponent::send_limits_query(const std::string &id) {
 void ARCBridgeComponent::enqueue_queries_for_id_(const std::string &id, bool force_static) {
   this->send_query(id);
 
-  if (find_mapped_(this->voltage_map_, id) != nullptr) {
+  if (find_mapped_(this->voltage_map_, id) != nullptr ||
+      find_mapped_(this->battery_level_map_, id) != nullptr) {
     this->send_voltage_query(id);
   }
 
@@ -561,20 +563,36 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
   }
 
   auto *sensor = find_mapped_(this->voltage_map_, id);
-  if (sensor == nullptr) {
-    ESP_LOGD(TAG, "[%s] pVc=%ld but no mapped voltage sensor", id.c_str(), raw_value);
+  auto *battery_sensor = find_mapped_(this->battery_level_map_, id);
+  if (sensor == nullptr && battery_sensor == nullptr) {
+    ESP_LOGD(TAG, "[%s] pVc=%ld but no mapped voltage or battery sensor", id.c_str(), raw_value);
     return;
   }
 
   if (raw_value == 0) {
-    sensor->publish_state(0.0f);
-    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V", id.c_str());
+    if (sensor != nullptr) {
+      sensor->publish_state(0.0f);
+    }
+    if (battery_sensor != nullptr) {
+      battery_sensor->publish_state(NAN);
+    }
+    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V and leaving battery unavailable",
+             id.c_str());
     return;
   }
 
   const float volts = static_cast<float>(raw_value) / 100.0f;
-  sensor->publish_state(volts);
-  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), volts);
+  if (sensor != nullptr) {
+    sensor->publish_state(volts);
+  }
+  if (battery_sensor != nullptr) {
+    const float battery_pct = battery_percent_from_3s_li_ion(volts);
+    battery_sensor->publish_state(battery_pct);
+    ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV / %.1f%%", id.c_str(), digits.c_str(), volts,
+             battery_pct);
+  } else {
+    ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), volts);
+  }
 }
 
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *sensor) {
@@ -588,6 +606,11 @@ void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::T
 void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *sensor) {
   this->voltage_map_[id] = sensor;
   ESP_LOGD(TAG, "Mapped voltage sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::map_battery_level_sensor(const std::string &id, sensor::Sensor *sensor) {
+  this->battery_level_map_[id] = sensor;
+  ESP_LOGD(TAG, "Mapped battery level sensor for id='%s'", id.c_str());
 }
 
 void ARCBridgeComponent::map_version_sensor(const std::string &id, text_sensor::TextSensor *sensor) {
