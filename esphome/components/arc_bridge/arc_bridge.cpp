@@ -96,6 +96,10 @@ static std::string format_limits_text_(const std::string &code) {
 
 }  // namespace
 
+// =========================================================
+//  TX QUEUE IMPLEMENTATION
+// =========================================================
+
 void ARCBridgeComponent::queue_tx(const std::string &frame,
                                   TxPacingClass pacing_class,
                                   bool is_poll,
@@ -127,6 +131,7 @@ void ARCBridgeComponent::drop_pending_polls_() {
     return;
   }
 
+  // Poll/query frames are tracked explicitly on the queue item.
   const size_t before = this->tx_queue_.size();
   drop_pending_poll_items(this->tx_queue_);
 
@@ -144,6 +149,7 @@ void ARCBridgeComponent::process_tx_queue_() {
   }
 
   const TxQueueItem item = this->tx_queue_.front();
+  // Enforce safe ARC timing using the configured per-bridge motion gap.
   const uint32_t required_gap = tx_gap_ms_for(item.pacing_class, this->motion_tx_gap_ms_);
   if (now - this->last_tx_millis_ < required_gap) {
     return;
@@ -158,15 +164,20 @@ void ARCBridgeComponent::process_tx_queue_() {
   ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", item.frame.c_str(), required_gap);
 }
 
+// =========================================================
+//  SETUP
+// =========================================================
+
 void ARCBridgeComponent::setup() {
   while (this->available()) {
-    this->read();
+    this->read();  // purge stale UART
   }
 
   const uint32_t now = millis();
 
   this->boot_millis_ = now;
   this->startup_guard_cleared_ = false;
+  // Initialize timing so watchdog and quiet-time logic do not misfire at boot.
   this->last_tx_millis_ = now;
   this->last_rx_millis_ = now;
   this->last_motion_millis_ = now;
@@ -184,14 +195,22 @@ void ARCBridgeComponent::setup() {
            this->command_retry_timeout_ms_);
 }
 
+// =========================================================
+//  LOOP
+// =========================================================
+
 void ARCBridgeComponent::loop() {
   const uint32_t now = millis();
 
+  // Startup guard
   if (!this->startup_guard_cleared_ && now - this->boot_millis_ >= STARTUP_GUARD_MS) {
     this->startup_guard_cleared_ = true;
     ESP_LOGI(TAG, "Startup guard cleared");
   }
 
+  // -----------------------------
+  // UART RX
+  // -----------------------------
   while (this->available()) {
     const int c = this->read();
     if (c < 0) {
@@ -222,6 +241,9 @@ void ARCBridgeComponent::loop() {
                                 this->query_interval_ms_ > 0 && !this->covers_.empty() &&
                                 !quiet_due_to_motion;
 
+  // -----------------------------
+  // AUTO POLL
+  // -----------------------------
   if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
     this->last_query_millis_ = now;
 
@@ -241,23 +263,32 @@ void ARCBridgeComponent::loop() {
         continue;
       }
 
+      // Query one blind at a time so large installs do not burst the UART bus.
       ESP_LOGD(TAG, "Auto-poll: querying blind %s", blind_id.c_str());
       this->enqueue_queries_for_id_(blind_id, false);
       break;
     }
   }
 
+  // -----------------------------
+  // TX QUEUE PROCESSING
+  // -----------------------------
   this->process_tx_queue_();
   this->process_pending_deliveries_();
 
+  // -----------------------------
+  // TX WATCHDOG (movement-aware)
+  // -----------------------------
   if (this->tx_queue_.empty()) {
     return;
   }
 
+  // Skip watchdog entirely until the first TX occurs.
   if (this->last_tx_millis_ == this->boot_millis_) {
     return;
   }
 
+  // Use signed deltas so millis() rollover does not produce huge values.
   int32_t dt_rx = static_cast<int32_t>(now - this->last_rx_millis_);
   int32_t dt_tx = static_cast<int32_t>(now - this->last_tx_millis_);
   if (dt_rx < 0) {
@@ -294,6 +325,10 @@ void ARCBridgeComponent::loop() {
   }
 }
 
+// =========================================================
+//  COVER REGISTRATION
+// =========================================================
+
 void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) {
   this->covers_.push_back(cover);
 
@@ -304,6 +339,10 @@ void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) 
 
   ESP_LOGD(TAG, "Registered cover id='%s'", id.c_str());
 }
+
+// =========================================================
+//  DELIVERY TRACKING
+// =========================================================
 
 uint32_t ARCBridgeComponent::allocate_tracking_id_() {
   const uint32_t tracking_id = this->next_tracking_id_++;
@@ -418,6 +457,10 @@ void ARCBridgeComponent::process_pending_deliveries_() {
     }
   }
 }
+
+// =========================================================
+//  COMMAND SENDERS (all use queue_tx())
+// =========================================================
 
 void ARCBridgeComponent::send_simple_(const std::string &id, char command,
                                       const std::string &payload, bool priority,
@@ -557,6 +600,7 @@ void ARCBridgeComponent::send_limits_query(const std::string &id) {
 }
 
 void ARCBridgeComponent::enqueue_queries_for_id_(const std::string &id, bool force_static) {
+  // Always queue the position query first so state recovers quickly after silence.
   this->send_query(id);
 
   if (find_mapped_(this->voltage_map_, id) != nullptr ||
@@ -578,6 +622,10 @@ void ARCBridgeComponent::enqueue_queries_for_id_(const std::string &id, bool for
     this->send_limits_query(id);
   }
 }
+
+// =========================================================
+//  FRAME PARSING
+// =========================================================
 
 void ARCBridgeComponent::handle_frame(const std::string &frame) {
   ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
@@ -611,6 +659,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
              *parsed.rssi_raw, dbm, pct);
   }
 
+  // Handle pVc replies before availability/status updates.
   if (parsed.voltage_centivolts.has_value()) {
     this->handle_pvc_value_(id, std::to_string(*parsed.voltage_centivolts));
   }
@@ -696,6 +745,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 }
 
 void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
+  // Parse integer without exceptions.
   char *endptr = nullptr;
   const long raw_value = std::strtol(digits.c_str(), &endptr, 10);
   if (endptr == digits.c_str() || raw_value < 0) {
@@ -710,6 +760,7 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
     return;
   }
 
+  // 0 means an AC or mains-powered motor.
   if (raw_value == 0) {
     if (sensor != nullptr) {
       sensor->publish_state(0.0f);
@@ -722,6 +773,7 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
     return;
   }
 
+  // Non-zero values are reported in centivolts.
   const float volts = static_cast<float>(raw_value) / 100.0f;
   if (sensor != nullptr) {
     sensor->publish_state(volts);
@@ -735,6 +787,10 @@ void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::str
     ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), volts);
   }
 }
+
+// =========================================================
+//  SENSOR MAPPING
+// =========================================================
 
 void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *sensor) {
   this->lq_map_[id] = sensor;

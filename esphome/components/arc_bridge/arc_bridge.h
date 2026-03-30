@@ -39,6 +39,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void send_jog_open(const std::string &id);
   void send_jog_close(const std::string &id);
 
+  // Query additional motor telemetry via the UART bridge.
   void send_voltage_query(const std::string &id);
   void send_version_query(const std::string &id);
   void send_speed_query(const std::string &id);
@@ -53,6 +54,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void map_speed_sensor(const std::string &id, sensor::Sensor *s);
   void map_limits_sensor(const std::string &id, text_sensor::TextSensor *s);
 
+  // Runtime tuning for polling, retries, and motion pacing.
   void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
   void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
   void set_command_retry_count(uint8_t retry_count) { this->command_retry_count_ = retry_count; }
@@ -75,6 +77,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
                     DeliveryExpectation delivery_expectation = DeliveryExpectation::NONE,
                     bool allow_retry = false);
   void enqueue_queries_for_id_(const std::string &id, bool force_static);
+  // Helper to decode and publish pVc feedback.
   void handle_pvc_value_(const std::string &id, const std::string &digits);
   uint32_t allocate_tracking_id_();
   void arm_pending_delivery_(const TxQueueItem &item, uint32_t now);
@@ -117,6 +120,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::unordered_map<std::string, text_sensor::TextSensor *> version_map_;
   std::unordered_map<std::string, sensor::Sensor *> speed_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> limits_map_;
+  // Track motion-command delivery per blind so retries stay scoped.
   struct PendingCommandDelivery {
     TxQueueItem item;
     uint8_t retries_used{0};
@@ -143,8 +147,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
                       bool is_poll = false,
                       const std::string &blind_id = "",
                       DeliveryExpectation delivery_expectation = DeliveryExpectation::NONE,
-                      bool allow_retry = false,
-                      uint32_t tracking_id = 0);
+                bool allow_retry = false,
+                uint32_t tracking_id = 0);
   void drop_pending_polls_();
   void process_tx_queue_();
 };
