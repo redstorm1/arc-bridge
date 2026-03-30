@@ -6,6 +6,7 @@ CONF_AUTO_POLL = "auto_poll"
 CONF_AUTO_POLL_INTERVAL = "auto_poll_interval"
 CONF_COMMAND_RETRIES = "command_retries"
 CONF_COMMAND_RETRY_TIMEOUT = "command_retry_timeout"
+CONF_MOTION_TX_GAP = "motion_tx_gap"
 
 arc_bridge_ns = cg.esphome_ns.namespace("arc_bridge")
 ARCBridgeComponent = arc_bridge_ns.class_("ARCBridgeComponent", cg.Component, uart.UARTDevice)
@@ -16,6 +17,7 @@ CONFIG_SCHEMA = (
             cv.GenerateID(): cv.declare_id(ARCBridgeComponent),
             cv.Optional(CONF_AUTO_POLL, default=True): cv.boolean,
             cv.Optional(CONF_AUTO_POLL_INTERVAL, default="10s"): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_MOTION_TX_GAP, default="200ms"): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_COMMAND_RETRIES, default=1): cv.int_range(min=0, max=5),
             cv.Optional(
                 CONF_COMMAND_RETRY_TIMEOUT, default="1500ms"
@@ -35,6 +37,8 @@ async def to_code(config):
     cg.add(var.set_auto_poll_enabled(config[CONF_AUTO_POLL]))
     interval = config[CONF_AUTO_POLL_INTERVAL]
     cg.add(var.set_auto_poll_interval(interval.total_milliseconds))
+    motion_gap = config[CONF_MOTION_TX_GAP]
+    cg.add(var.set_motion_tx_gap(motion_gap.total_milliseconds))
     cg.add(var.set_command_retry_count(config[CONF_COMMAND_RETRIES]))
     retry_timeout = config[CONF_COMMAND_RETRY_TIMEOUT]
     cg.add(var.set_command_retry_timeout(retry_timeout.total_milliseconds))

@@ -106,7 +106,7 @@ void ARCBridgeComponent::queue_tx(const std::string &frame,
   this->tx_queue_.push_back(
       {frame, pacing_class, is_poll, blind_id, delivery_expectation, allow_retry, tracking_id});
   ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%u ms)", frame.c_str(),
-           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
 void ARCBridgeComponent::queue_tx_front(const std::string &frame,
@@ -119,7 +119,7 @@ void ARCBridgeComponent::queue_tx_front(const std::string &frame,
   this->tx_queue_.push_front(
       {frame, pacing_class, is_poll, blind_id, delivery_expectation, allow_retry, tracking_id});
   ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%u ms)", frame.c_str(),
-           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
 void ARCBridgeComponent::drop_pending_polls_() {
@@ -144,7 +144,7 @@ void ARCBridgeComponent::process_tx_queue_() {
   }
 
   const TxQueueItem item = this->tx_queue_.front();
-  const uint32_t required_gap = tx_gap_ms_for(item.pacing_class);
+  const uint32_t required_gap = tx_gap_ms_for(item.pacing_class, this->motion_tx_gap_ms_);
   if (now - this->last_tx_millis_ < required_gap) {
     return;
   }
@@ -178,8 +178,8 @@ void ARCBridgeComponent::setup() {
            STARTUP_GUARD_MS,
            (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
            this->query_interval_ms_,
-           tx_gap_ms_for(TxPacingClass::STANDARD),
-           tx_gap_ms_for(TxPacingClass::MOTION),
+           tx_gap_ms_for(TxPacingClass::STANDARD, this->motion_tx_gap_ms_),
+           tx_gap_ms_for(TxPacingClass::MOTION, this->motion_tx_gap_ms_),
            this->command_retry_count_,
            this->command_retry_timeout_ms_);
 }

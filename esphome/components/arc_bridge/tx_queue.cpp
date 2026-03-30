@@ -5,17 +5,10 @@
 namespace esphome {
 namespace arc_bridge {
 
-namespace {
-
-static constexpr uint32_t DEFAULT_TX_GAP_MS = 800;
-static constexpr uint32_t MOTION_TX_GAP_MS = 200;
-
-}  // namespace
-
-uint32_t tx_gap_ms_for(TxPacingClass pacing_class) {
+uint32_t tx_gap_ms_for(TxPacingClass pacing_class, uint32_t motion_tx_gap_ms) {
   switch (pacing_class) {
     case TxPacingClass::MOTION:
-      return MOTION_TX_GAP_MS;
+      return motion_tx_gap_ms;
     case TxPacingClass::STANDARD:
     default:
       return DEFAULT_TX_GAP_MS;

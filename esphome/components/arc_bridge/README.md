@@ -41,11 +41,14 @@ arc_bridge:
   uart_id: rf_a
   auto_poll: true
   auto_poll_interval: 10s
+  motion_tx_gap: 200ms
   command_retries: 1
   command_retry_timeout: 1500ms
 ```
 
 `auto_poll_interval` is per blind. Each interval queues the next valid blind in round-robin order instead of polling every blind at once.
+
+`motion_tx_gap` controls the internal spacing for motion commands like open, close, stop, move, favorite, and jog. The default remains `200 ms`.
 
 `command_retries` sets how many times the bridge will replay safe motion commands after a missed blind reply. `command_retry_timeout` sets how long it waits before sending a verification `r?` query and, if needed, retrying.
 

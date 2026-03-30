@@ -57,6 +57,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void set_auto_poll_interval(uint32_t interval_ms) { this->query_interval_ms_ = interval_ms; }
   void set_command_retry_count(uint8_t retry_count) { this->command_retry_count_ = retry_count; }
   void set_command_retry_timeout(uint32_t timeout_ms) { this->command_retry_timeout_ms_ = timeout_ms; }
+  void set_motion_tx_gap(uint32_t gap_ms) { this->motion_tx_gap_ms_ = gap_ms; }
 
   bool is_startup_guard_cleared() const { return this->startup_guard_cleared_; }
 
@@ -105,6 +106,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   uint32_t query_interval_ms_{QUERY_INTERVAL_MS};
   uint8_t command_retry_count_{COMMAND_RETRY_COUNT};
   uint32_t command_retry_timeout_ms_{COMMAND_RETRY_TIMEOUT_MS};
+  uint32_t motion_tx_gap_ms_{DEFAULT_MOTION_TX_GAP_MS};
 
   std::vector<ARCCover *> covers_;
   std::unordered_map<std::string, ARCCover *> cover_map_;

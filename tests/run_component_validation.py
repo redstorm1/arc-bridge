@@ -37,6 +37,7 @@ arc_bridge:
   id: arc
   uart_id: rf_a
   auto_poll_interval: 30s
+  motion_tx_gap: 250ms
   command_retries: 1
   command_retry_timeout: 1500ms
 """

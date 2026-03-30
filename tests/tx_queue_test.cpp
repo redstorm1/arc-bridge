@@ -24,6 +24,10 @@ void test_gap_mapping() {
           "default queue items should keep the 800 ms gap");
   require(tx_gap_ms_for(TxPacingClass::MOTION) == 200,
           "motion queue items should use the 200 ms gap");
+  require(tx_gap_ms_for(TxPacingClass::MOTION, 350) == 350,
+          "motion queue items should honor an overridden motion gap");
+  require(tx_gap_ms_for(TxPacingClass::STANDARD, 350) == 800,
+          "standard queue items should ignore the overridden motion gap");
 }
 
 void test_drop_pending_polls_removes_only_poll_items() {
