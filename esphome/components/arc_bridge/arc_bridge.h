@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tx_queue.h"
+
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
@@ -62,7 +64,10 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
  protected:
   void handle_frame(const std::string &frame);
   void parse_frame(const std::string &frame);
-  void send_simple_(const std::string &id, char command, const std::string &payload = "", bool priority = false);
+  void send_simple_(const std::string &id, char command, const std::string &payload = "",
+                    bool priority = false,
+                    TxPacingClass pacing_class = TxPacingClass::STANDARD,
+                    bool is_poll = false);
   void enqueue_queries_for_id_(const std::string &id, bool force_static);
   void handle_pvc_value_(const std::string &id, const std::string &digits);
 
@@ -71,7 +76,6 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   // ===============================
   static const uint32_t QUERY_INTERVAL_MS = 10000;      // 10 seconds
   static const uint32_t STARTUP_GUARD_MS  = 10000;      // 10 seconds
-  static const uint32_t TX_GAP_MS         = 800;        // safe TX spacing
   static const uint32_t MOVEMENT_QUIET_MS = 90000;      // 90 seconds
   static const uint32_t TX_WATCHDOG_MS    = 5000;       // 5 seconds
 
@@ -101,10 +105,14 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   // ===============================
   // TX QUEUE SUPPORT
   // ===============================
-  std::deque<std::string> tx_queue_;
+  std::deque<TxQueueItem> tx_queue_;
   uint32_t last_tx_millis_{0};
-  void queue_tx(const std::string &frame);
-  void queue_tx_front(const std::string &frame);
+  void queue_tx(const std::string &frame,
+                TxPacingClass pacing_class = TxPacingClass::STANDARD,
+                bool is_poll = false);
+  void queue_tx_front(const std::string &frame,
+                      TxPacingClass pacing_class = TxPacingClass::STANDARD,
+                      bool is_poll = false);
   void drop_pending_polls_();
   void process_tx_queue_();
 };

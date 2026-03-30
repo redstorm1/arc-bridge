@@ -3,6 +3,7 @@
 #include "battery.h"
 #include "arc_cover.h"
 #include "protocol.h"
+#include "tx_queue.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
@@ -22,14 +23,6 @@ template<typename T>
 T *find_mapped_(std::unordered_map<std::string, T *> &map, const std::string &id) {
   auto it = map.find(id);
   return (it != map.end()) ? it->second : nullptr;
-}
-
-static bool is_poll_frame_(const std::string &frame) {
-  return frame.find("r?;") != std::string::npos ||
-         frame.find("pVc?;") != std::string::npos ||
-         frame.find("pSc?;") != std::string::npos ||
-         frame.find("pP?;") != std::string::npos ||
-         frame.find("v?;") != std::string::npos;
 }
 
 static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
@@ -103,16 +96,20 @@ static std::string format_limits_text_(const std::string &code) {
 
 }  // namespace
 
-void ARCBridgeComponent::queue_tx(const std::string &frame) {
-  this->tx_queue_.push_back(frame);
-  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u)", frame.c_str(),
-           (unsigned) this->tx_queue_.size());
+void ARCBridgeComponent::queue_tx(const std::string &frame,
+                                  TxPacingClass pacing_class,
+                                  bool is_poll) {
+  this->tx_queue_.push_back({frame, pacing_class, is_poll});
+  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%u ms)", frame.c_str(),
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
 }
 
-void ARCBridgeComponent::queue_tx_front(const std::string &frame) {
-  this->tx_queue_.push_front(frame);
-  ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u)", frame.c_str(),
-           (unsigned) this->tx_queue_.size());
+void ARCBridgeComponent::queue_tx_front(const std::string &frame,
+                                        TxPacingClass pacing_class,
+                                        bool is_poll) {
+  this->tx_queue_.push_front({frame, pacing_class, is_poll});
+  ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%u ms)", frame.c_str(),
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
 }
 
 void ARCBridgeComponent::drop_pending_polls_() {
@@ -121,10 +118,7 @@ void ARCBridgeComponent::drop_pending_polls_() {
   }
 
   const size_t before = this->tx_queue_.size();
-  this->tx_queue_.erase(
-      std::remove_if(this->tx_queue_.begin(), this->tx_queue_.end(),
-                     [](const std::string &frame) { return is_poll_frame_(frame); }),
-      this->tx_queue_.end());
+  drop_pending_poll_items(this->tx_queue_);
 
   const size_t dropped = before - this->tx_queue_.size();
   if (dropped > 0) {
@@ -139,17 +133,19 @@ void ARCBridgeComponent::process_tx_queue_() {
     return;
   }
 
-  if (now - this->last_tx_millis_ < TX_GAP_MS) {
+  const TxQueueItem &item = this->tx_queue_.front();
+  const uint32_t required_gap = tx_gap_ms_for(item.pacing_class);
+  if (now - this->last_tx_millis_ < required_gap) {
     return;
   }
 
-  const std::string frame = this->tx_queue_.front();
+  const std::string frame = item.frame;
   this->tx_queue_.pop_front();
 
   this->write_str(frame.c_str());
   this->last_tx_millis_ = now;
 
-  ESP_LOGD(TAG, "TX -> %s (queued send)", frame.c_str());
+  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", frame.c_str(), required_gap);
 }
 
 void ARCBridgeComponent::setup() {
@@ -168,10 +164,12 @@ void ARCBridgeComponent::setup() {
   this->query_index_ = 0;
 
   ESP_LOGI(TAG,
-           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms)",
+           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms, tx gaps default=%u ms motion=%u ms)",
            STARTUP_GUARD_MS,
            (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
-           this->query_interval_ms_);
+           this->query_interval_ms_,
+           tx_gap_ms_for(TxPacingClass::STANDARD),
+           tx_gap_ms_for(TxPacingClass::MOTION));
 }
 
 void ARCBridgeComponent::loop() {
@@ -295,14 +293,15 @@ void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) 
 }
 
 void ARCBridgeComponent::send_simple_(const std::string &id, char command,
-                                      const std::string &payload, bool priority) {
+                                      const std::string &payload, bool priority,
+                                      TxPacingClass pacing_class, bool is_poll) {
   const std::string frame = "!" + id + command + payload + ";";
 
   if (priority) {
-    this->queue_tx_front(frame);
+    this->queue_tx_front(frame, pacing_class, is_poll);
     ESP_LOGD(TAG, "TX queued (priority) -> %s", frame.c_str());
   } else {
-    this->queue_tx(frame);
+    this->queue_tx(frame, pacing_class, is_poll);
     ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
   }
 }
@@ -310,19 +309,19 @@ void ARCBridgeComponent::send_simple_(const std::string &id, char command,
 void ARCBridgeComponent::send_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "", true);
+  this->send_simple_(id, 'o', "", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "", true);
+  this->send_simple_(id, 'c', "", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_stop(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 's', "", true);
+  this->send_simple_(id, 's', "", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
@@ -335,11 +334,11 @@ void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
 
   char buffer[4];
   snprintf(buffer, sizeof(buffer), "%03u", percent);
-  this->send_simple_(id, 'm', buffer, true);
+  this->send_simple_(id, 'm', buffer, true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_query(const std::string &id) {
-  this->send_simple_(id, 'r', "?", false);
+  this->send_simple_(id, 'r', "?", false, TxPacingClass::STANDARD, true);
 }
 
 void ARCBridgeComponent::send_query_all() {
@@ -360,7 +359,7 @@ void ARCBridgeComponent::send_query_all() {
 
 void ARCBridgeComponent::send_pair_command() {
   this->drop_pending_polls_();
-  this->queue_tx_front("!000&;");
+  this->queue_tx_front("!000&;", TxPacingClass::STANDARD, false);
   ESP_LOGI(TAG, "TX queued (priority) -> !000&; (pairing)");
 }
 
@@ -379,42 +378,42 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
   }
 
   this->drop_pending_polls_();
-  this->queue_tx_front(tx);
+  this->queue_tx_front(tx, TxPacingClass::STANDARD, false);
   ESP_LOGI(TAG, "TX queued (raw, priority) -> %s", tx.c_str());
 }
 
 void ARCBridgeComponent::send_favorite(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'f', "", true);
+  this->send_simple_(id, 'f', "", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_jog_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "A", true);
+  this->send_simple_(id, 'o', "A", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_jog_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "A", true);
+  this->send_simple_(id, 'c', "A", true, TxPacingClass::MOTION, false);
 }
 
 void ARCBridgeComponent::send_voltage_query(const std::string &id) {
-  this->send_simple_(id, 'p', "Vc?", false);
+  this->send_simple_(id, 'p', "Vc?", false, TxPacingClass::STANDARD, true);
 }
 
 void ARCBridgeComponent::send_version_query(const std::string &id) {
-  this->send_simple_(id, 'v', "?", false);
+  this->send_simple_(id, 'v', "?", false, TxPacingClass::STANDARD, true);
 }
 
 void ARCBridgeComponent::send_speed_query(const std::string &id) {
-  this->send_simple_(id, 'p', "Sc?", false);
+  this->send_simple_(id, 'p', "Sc?", false, TxPacingClass::STANDARD, true);
 }
 
 void ARCBridgeComponent::send_limits_query(const std::string &id) {
-  this->send_simple_(id, 'p', "P?", false);
+  this->send_simple_(id, 'p', "P?", false, TxPacingClass::STANDARD, true);
 }
 
 void ARCBridgeComponent::enqueue_queries_for_id_(const std::string &id, bool force_static) {

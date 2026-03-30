@@ -29,5 +29,8 @@ jobs:
       - name: Run battery curve test
         run: python tests/run_battery_curve_test.py
 
+      - name: Run TX queue test
+        run: python tests/run_tx_queue_test.py
+
       - name: Validate ESPHome configs
         run: python tests/run_component_validation.py

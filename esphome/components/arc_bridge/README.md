@@ -78,6 +78,8 @@ cover:
 
 `members:` takes existing `arc_bridge` cover IDs, so the group can be controlled with standard ESPHome cover actions instead of lambda fan-out.
 
+Grouped motion is still serialized one blind at a time, but motion commands now use a shorter internal `200 ms` send gap while poll and static query traffic stay on the slower conservative pacing.
+
 ```yaml
 button:
   - platform: template
@@ -195,6 +197,7 @@ The component currently handles:
 - Speed `pSc`
 - Limits `pP`
 - Version `v?`
+- Faster internal pacing for motion commands than for poll/static queries
 
 It does not expose destructive admin commands such as hub resets, address rewrites, delete/unpair operations, or factory reset as first-class YAML features.
 
