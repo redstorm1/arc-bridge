@@ -8,7 +8,7 @@ namespace arc_bridge {
 namespace {
 
 static constexpr uint32_t DEFAULT_TX_GAP_MS = 800;
-static constexpr uint32_t MOTION_TX_GAP_MS = 50;
+static constexpr uint32_t MOTION_TX_GAP_MS = 100;
 
 }  // namespace
 
