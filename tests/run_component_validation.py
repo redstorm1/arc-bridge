@@ -37,6 +37,8 @@ arc_bridge:
   id: arc
   uart_id: rf_a
   auto_poll_interval: 30s
+  command_retries: 1
+  command_retry_timeout: 1500ms
 """
 
 VALID_CONFIG_BODY = """

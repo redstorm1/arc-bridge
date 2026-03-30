@@ -29,6 +29,9 @@ jobs:
       - name: Run battery curve test
         run: python tests/run_battery_curve_test.py
 
+      - name: Run delivery test
+        run: python tests/run_delivery_test.py
+
       - name: Run TX queue test
         run: python tests/run_tx_queue_test.py
 

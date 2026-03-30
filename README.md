@@ -42,9 +42,13 @@ arc_bridge:
   uart_id: rf_a
   auto_poll: true
   auto_poll_interval: 10s
+  command_retries: 1
+  command_retry_timeout: 1500ms
 ```
 
 `auto_poll_interval` is the time between each blind query, not a full sweep. The bridge polls one blind at a time in round-robin order so larger installs do not burst the UART bus every cycle.
+
+`command_retries` controls how many times the bridge will replay safe motion commands after a missed reply. `command_retry_timeout` controls how long it waits before sending a verification `r?` query and, if needed, retrying.
 
 ## Cover Configuration
 
@@ -80,6 +84,8 @@ cover:
 `members:` references existing `arc_bridge` cover IDs, so the group behaves like a normal ESPHome cover without `lambda` fan-out.
 
 Group motion is still serialized one blind at a time, but motion commands now use a shorter internal `200 ms` send gap while poll and static query traffic stay on the slower conservative pacing.
+
+The bridge also watches for a blind reply after motion commands. If a blind stays silent, it sends one verification query and can replay safe commands like open, close, stop, and move. Favorite and jog commands are verified but not auto-replayed to avoid duplicate nudges.
 
 ```yaml
 button:
@@ -197,6 +203,7 @@ button:
 - Voltage uses `pVc`, speed uses `pSc`, limits use `pP`, and version uses `v?`
 - Lost-link `Enl` and not-paired `Enp` states are handled distinctly
 - Motion commands use a shorter internal send gap than poll/static queries
+- Motion commands can send a verification query and retry safe commands when a blind stays silent
 - The code does not expose destructive Pulse 1-style admin commands such as address rewrites, resets, or factory defaults as first-class YAML features
 
 ## Limitations

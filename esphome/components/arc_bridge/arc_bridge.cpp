@@ -98,16 +98,26 @@ static std::string format_limits_text_(const std::string &code) {
 
 void ARCBridgeComponent::queue_tx(const std::string &frame,
                                   TxPacingClass pacing_class,
-                                  bool is_poll) {
-  this->tx_queue_.push_back({frame, pacing_class, is_poll});
+                                  bool is_poll,
+                                  const std::string &blind_id,
+                                  DeliveryExpectation delivery_expectation,
+                                  bool allow_retry,
+                                  uint32_t tracking_id) {
+  this->tx_queue_.push_back(
+      {frame, pacing_class, is_poll, blind_id, delivery_expectation, allow_retry, tracking_id});
   ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%u ms)", frame.c_str(),
            (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
 }
 
 void ARCBridgeComponent::queue_tx_front(const std::string &frame,
                                         TxPacingClass pacing_class,
-                                        bool is_poll) {
-  this->tx_queue_.push_front({frame, pacing_class, is_poll});
+                                        bool is_poll,
+                                        const std::string &blind_id,
+                                        DeliveryExpectation delivery_expectation,
+                                        bool allow_retry,
+                                        uint32_t tracking_id) {
+  this->tx_queue_.push_front(
+      {frame, pacing_class, is_poll, blind_id, delivery_expectation, allow_retry, tracking_id});
   ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%u ms)", frame.c_str(),
            (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class));
 }
@@ -133,19 +143,19 @@ void ARCBridgeComponent::process_tx_queue_() {
     return;
   }
 
-  const TxQueueItem &item = this->tx_queue_.front();
+  const TxQueueItem item = this->tx_queue_.front();
   const uint32_t required_gap = tx_gap_ms_for(item.pacing_class);
   if (now - this->last_tx_millis_ < required_gap) {
     return;
   }
 
-  const std::string frame = item.frame;
   this->tx_queue_.pop_front();
 
-  this->write_str(frame.c_str());
+  this->write_str(item.frame.c_str());
   this->last_tx_millis_ = now;
+  this->arm_pending_delivery_(item, now);
 
-  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", frame.c_str(), required_gap);
+  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", item.frame.c_str(), required_gap);
 }
 
 void ARCBridgeComponent::setup() {
@@ -164,12 +174,14 @@ void ARCBridgeComponent::setup() {
   this->query_index_ = 0;
 
   ESP_LOGI(TAG,
-           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms, tx gaps default=%u ms motion=%u ms)",
+           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms, tx gaps default=%u ms motion=%u ms, command retries=%u timeout=%u ms)",
            STARTUP_GUARD_MS,
            (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
            this->query_interval_ms_,
            tx_gap_ms_for(TxPacingClass::STANDARD),
-           tx_gap_ms_for(TxPacingClass::MOTION));
+           tx_gap_ms_for(TxPacingClass::MOTION),
+           this->command_retry_count_,
+           this->command_retry_timeout_ms_);
 }
 
 void ARCBridgeComponent::loop() {
@@ -236,6 +248,7 @@ void ARCBridgeComponent::loop() {
   }
 
   this->process_tx_queue_();
+  this->process_pending_deliveries_();
 
   if (this->tx_queue_.empty()) {
     return;
@@ -292,16 +305,136 @@ void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) 
   ESP_LOGD(TAG, "Registered cover id='%s'", id.c_str());
 }
 
+uint32_t ARCBridgeComponent::allocate_tracking_id_() {
+  const uint32_t tracking_id = this->next_tracking_id_++;
+  if (this->next_tracking_id_ == 0) {
+    this->next_tracking_id_ = 1;
+  }
+  return tracking_id;
+}
+
+void ARCBridgeComponent::arm_pending_delivery_(const TxQueueItem &item, uint32_t now) {
+  if (item.delivery_expectation == DeliveryExpectation::NONE || item.blind_id.empty()) {
+    return;
+  }
+
+  auto &pending = this->pending_command_deliveries_[item.blind_id];
+  const bool same_tracking = pending.item.tracking_id == item.tracking_id;
+  if (!same_tracking) {
+    pending = {};
+    pending.item = item;
+  } else {
+    pending.item = item;
+  }
+
+  pending.last_activity_ms = now;
+  pending.verification_sent = false;
+
+  ESP_LOGD(TAG, "[%s] Awaiting delivery confirmation for %s (tracking=%u, retries used=%u)",
+           item.blind_id.c_str(), item.frame.c_str(), item.tracking_id, pending.retries_used);
+}
+
+void ARCBridgeComponent::acknowledge_pending_delivery_(const ParsedFrame &parsed) {
+  auto it = this->pending_command_deliveries_.find(parsed.id);
+  if (it == this->pending_command_deliveries_.end()) {
+    return;
+  }
+
+  if (!frame_confirms_delivery(parsed, it->second.item.delivery_expectation)) {
+    return;
+  }
+
+  if (parsed.lost_link || parsed.not_paired) {
+    ESP_LOGW(TAG, "[%s] Delivery check failed with explicit blind status for %s", parsed.id.c_str(),
+             it->second.item.frame.c_str());
+  } else {
+    ESP_LOGD(TAG, "[%s] Delivery confirmed for %s", parsed.id.c_str(),
+             it->second.item.frame.c_str());
+  }
+
+  this->pending_command_deliveries_.erase(it);
+}
+
+void ARCBridgeComponent::send_verification_query_(const std::string &id) {
+  const std::string frame = "!" + id + "r?;";
+  this->queue_tx_front(frame, TxPacingClass::STANDARD, false);
+  ESP_LOGW(TAG, "[%s] Queued verification query -> %s", id.c_str(), frame.c_str());
+}
+
+void ARCBridgeComponent::process_pending_deliveries_() {
+  if (this->pending_command_deliveries_.empty() || this->command_retry_timeout_ms_ == 0) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  for (auto it = this->pending_command_deliveries_.begin();
+       it != this->pending_command_deliveries_.end();) {
+    auto &pending = it->second;
+    const PendingDeliveryPolicy policy{
+        pending.retries_used,
+        this->command_retry_count_,
+        pending.last_activity_ms,
+        this->command_retry_timeout_ms_,
+        pending.verification_sent,
+        pending.item.allow_retry,
+    };
+
+    switch (next_delivery_timeout_action(policy, now)) {
+      case DeliveryTimeoutAction::SEND_VERIFY_QUERY:
+        ESP_LOGW(TAG, "[%s] No reply for %s after %u ms -> verifying with r?",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str(),
+                 this->command_retry_timeout_ms_);
+        this->send_verification_query_(pending.item.blind_id);
+        pending.verification_sent = true;
+        pending.last_activity_ms = now;
+        ++it;
+        break;
+
+      case DeliveryTimeoutAction::RETRY_COMMAND:
+        ESP_LOGW(TAG, "[%s] No confirmation for %s -> retry %u/%u",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str(),
+                 static_cast<unsigned>(pending.retries_used + 1),
+                 static_cast<unsigned>(this->command_retry_count_));
+        this->drop_pending_polls_();
+        this->queue_tx_front(pending.item.frame, pending.item.pacing_class, false,
+                             pending.item.blind_id, pending.item.delivery_expectation,
+                             pending.item.allow_retry, pending.item.tracking_id);
+        pending.retries_used++;
+        pending.verification_sent = false;
+        pending.last_activity_ms = now;
+        ++it;
+        break;
+
+      case DeliveryTimeoutAction::GIVE_UP:
+        ESP_LOGW(TAG, "[%s] No confirmation for %s after verification -> giving up",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str());
+        it = this->pending_command_deliveries_.erase(it);
+        break;
+
+      case DeliveryTimeoutAction::NONE:
+      default:
+        ++it;
+        break;
+    }
+  }
+}
+
 void ARCBridgeComponent::send_simple_(const std::string &id, char command,
                                       const std::string &payload, bool priority,
-                                      TxPacingClass pacing_class, bool is_poll) {
+                                      TxPacingClass pacing_class, bool is_poll,
+                                      DeliveryExpectation delivery_expectation,
+                                      bool allow_retry) {
   const std::string frame = "!" + id + command + payload + ";";
+  const uint32_t tracking_id =
+      delivery_expectation == DeliveryExpectation::NONE ? 0 : this->allocate_tracking_id_();
 
   if (priority) {
-    this->queue_tx_front(frame, pacing_class, is_poll);
+    this->queue_tx_front(frame, pacing_class, is_poll, id, delivery_expectation, allow_retry,
+                         tracking_id);
     ESP_LOGD(TAG, "TX queued (priority) -> %s", frame.c_str());
   } else {
-    this->queue_tx(frame, pacing_class, is_poll);
+    this->queue_tx(frame, pacing_class, is_poll, id, delivery_expectation, allow_retry,
+                   tracking_id);
     ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
   }
 }
@@ -309,19 +442,22 @@ void ARCBridgeComponent::send_simple_(const std::string &id, char command,
 void ARCBridgeComponent::send_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'o', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, true);
 }
 
 void ARCBridgeComponent::send_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'c', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, true);
 }
 
 void ARCBridgeComponent::send_stop(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 's', "", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 's', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, true);
 }
 
 void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
@@ -334,7 +470,8 @@ void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
 
   char buffer[4];
   snprintf(buffer, sizeof(buffer), "%03u", percent);
-  this->send_simple_(id, 'm', buffer, true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'm', buffer, true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, true);
 }
 
 void ARCBridgeComponent::send_query(const std::string &id) {
@@ -385,19 +522,22 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
 void ARCBridgeComponent::send_favorite(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'f', "", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'f', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, false);
 }
 
 void ARCBridgeComponent::send_jog_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "A", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'o', "A", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, false);
 }
 
 void ARCBridgeComponent::send_jog_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "A", true, TxPacingClass::MOTION, false);
+  this->send_simple_(id, 'c', "A", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::POSITION_FEEDBACK, false);
 }
 
 void ARCBridgeComponent::send_voltage_query(const std::string &id) {
@@ -452,6 +592,8 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
   if (!parsed.valid) {
     return;
   }
+
+  this->acknowledge_pending_delivery_(parsed);
 
   const std::string &id = parsed.id;
   auto *cover = find_mapped_(this->cover_map_, id);

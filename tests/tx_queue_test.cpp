@@ -28,10 +28,14 @@ void test_gap_mapping() {
 
 void test_drop_pending_polls_removes_only_poll_items() {
   std::deque<TxQueueItem> queue = {
-      {"!USZr?;", TxPacingClass::STANDARD, true},
-      {"!USZm050;", TxPacingClass::MOTION, false},
-      {"!USZpVc?;", TxPacingClass::STANDARD, true},
-      {"!000&;", TxPacingClass::STANDARD, false},
+      {"!USZr?;", TxPacingClass::STANDARD, true, "", esphome::arc_bridge::DeliveryExpectation::NONE,
+       false, 0},
+      {"!USZm050;", TxPacingClass::MOTION, false, "",
+       esphome::arc_bridge::DeliveryExpectation::NONE, false, 0},
+      {"!USZpVc?;", TxPacingClass::STANDARD, true, "",
+       esphome::arc_bridge::DeliveryExpectation::NONE, false, 0},
+      {"!000&;", TxPacingClass::STANDARD, false, "", esphome::arc_bridge::DeliveryExpectation::NONE,
+       false, 0},
   };
 
   drop_pending_poll_items(queue);
@@ -43,9 +47,12 @@ void test_drop_pending_polls_removes_only_poll_items() {
 
 void test_priority_motion_sits_ahead_of_polls() {
   std::deque<TxQueueItem> queue;
-  queue.push_back({"!USZr?;", TxPacingClass::STANDARD, true});
-  queue.push_back({"!USZpVc?;", TxPacingClass::STANDARD, true});
-  queue.push_front({"!USZo;", TxPacingClass::MOTION, false});
+  queue.push_back({"!USZr?;", TxPacingClass::STANDARD, true, "",
+                   esphome::arc_bridge::DeliveryExpectation::NONE, false, 0});
+  queue.push_back({"!USZpVc?;", TxPacingClass::STANDARD, true, "",
+                   esphome::arc_bridge::DeliveryExpectation::NONE, false, 0});
+  queue.push_front({"!USZo;", TxPacingClass::MOTION, false, "",
+                    esphome::arc_bridge::DeliveryExpectation::NONE, false, 0});
 
   require(queue.front().frame == "!USZo;",
           "priority motion frame should sit at the front of the queue");

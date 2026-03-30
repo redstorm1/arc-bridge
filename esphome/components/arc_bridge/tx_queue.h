@@ -1,5 +1,7 @@
 #pragma once
 
+#include "delivery.h"
+
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -16,6 +18,10 @@ struct TxQueueItem {
   std::string frame;
   TxPacingClass pacing_class{TxPacingClass::STANDARD};
   bool is_poll{false};
+  std::string blind_id;
+  DeliveryExpectation delivery_expectation{DeliveryExpectation::NONE};
+  bool allow_retry{false};
+  uint32_t tracking_id{0};
 };
 
 uint32_t tx_gap_ms_for(TxPacingClass pacing_class);
