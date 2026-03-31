@@ -25,6 +25,8 @@ struct TxQueueItem {
   DeliveryExpectation delivery_expectation{DeliveryExpectation::NONE};
   bool allow_retry{false};
   uint32_t tracking_id{0};
+  std::string expected_ack_token;
+  std::string expected_ack_prefix;
 };
 
 uint32_t tx_gap_ms_for(TxPacingClass pacing_class,

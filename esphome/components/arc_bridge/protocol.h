@@ -18,6 +18,7 @@ namespace arc_bridge {
 struct ParsedFrame {
   bool valid{false};
   std::string id;
+  std::string reply_token;
 
   esphome_arc_bridge_std_optional::optional<int> position_percent;
   bool position_in_motion{false};

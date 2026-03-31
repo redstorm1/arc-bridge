@@ -20,6 +20,8 @@ void test_position_and_rssi() {
   const ParsedFrame frame = parse_arc_frame("!USZr100b180,RA6;");
   require(frame.valid, "position/RSSI frame should parse");
   require(frame.id == "USZ", "position/RSSI frame should preserve the blind id");
+  require(frame.reply_token == "r100b180",
+          "position/RSSI frame should preserve the leading reply token");
   require(static_cast<bool>(frame.position_percent) && *frame.position_percent == 100,
           "position/RSSI frame should extract the final position");
   require(static_cast<bool>(frame.tilt_degrees) && *frame.tilt_degrees == 180,
@@ -32,9 +34,29 @@ void test_position_and_rssi() {
 void test_in_motion_position() {
   const ParsedFrame frame = parse_arc_frame("!USZ<09b00;");
   require(frame.valid, "in-motion frame should parse");
+  require(frame.reply_token == "<09b00",
+          "in-motion frame should preserve the leading reply token");
   require(static_cast<bool>(frame.position_percent) && *frame.position_percent == 9,
           "in-motion frame should extract the current position");
   require(frame.position_in_motion, "in-motion frame should be marked moving");
+}
+
+void test_motion_echo_tokens() {
+  const ParsedFrame open_echo = parse_arc_frame("!QJ0o,R98;");
+  require(open_echo.valid && open_echo.reply_token == "o",
+          "open echo should preserve the immediate reply token");
+
+  const ParsedFrame stop_echo = parse_arc_frame("!QJ0s,R9D;");
+  require(stop_echo.valid && stop_echo.reply_token == "s",
+          "stop echo should preserve the immediate reply token");
+
+  const ParsedFrame jog_echo = parse_arc_frame("!QJ0oA,R9C;");
+  require(jog_echo.valid && jog_echo.reply_token == "oA",
+          "jog-open echo should preserve the immediate reply token");
+
+  const ParsedFrame move_echo = parse_arc_frame("!QJ0m050,R9C;");
+  require(move_echo.valid && move_echo.reply_token == "m050",
+          "move echo should preserve the immediate reply token");
 }
 
 void test_unavailable_and_pairing_states() {
@@ -77,6 +99,7 @@ void test_extended_queries() {
 int main() {
   test_position_and_rssi();
   test_in_motion_position();
+  test_motion_echo_tokens();
   test_unavailable_and_pairing_states();
   test_extended_queries();
   std::cout << "protocol parser tests passed" << std::endl;

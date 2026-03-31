@@ -75,7 +75,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
                     TxPacingClass pacing_class = TxPacingClass::STANDARD,
                     bool is_poll = false,
                     DeliveryExpectation delivery_expectation = DeliveryExpectation::NONE,
-                    bool allow_retry = false);
+                    bool allow_retry = false,
+                    const std::string &expected_ack_token = "",
+                    const std::string &expected_ack_prefix = "");
   void enqueue_queries_for_id_(const std::string &id, bool force_static);
   // Helper to decode and publish pVc feedback.
   void handle_pvc_value_(const std::string &id, const std::string &digits);
@@ -141,14 +143,18 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
                 const std::string &blind_id = "",
                 DeliveryExpectation delivery_expectation = DeliveryExpectation::NONE,
                 bool allow_retry = false,
-                uint32_t tracking_id = 0);
+                uint32_t tracking_id = 0,
+                const std::string &expected_ack_token = "",
+                const std::string &expected_ack_prefix = "");
   void queue_tx_front(const std::string &frame,
                       TxPacingClass pacing_class = TxPacingClass::STANDARD,
                       bool is_poll = false,
                       const std::string &blind_id = "",
                       DeliveryExpectation delivery_expectation = DeliveryExpectation::NONE,
-                bool allow_retry = false,
-                uint32_t tracking_id = 0);
+                      bool allow_retry = false,
+                      uint32_t tracking_id = 0,
+                      const std::string &expected_ack_token = "",
+                      const std::string &expected_ack_prefix = "");
   void drop_pending_polls_();
   void process_tx_queue_();
 };

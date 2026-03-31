@@ -9,7 +9,7 @@ namespace arc_bridge {
 
 enum class DeliveryExpectation : uint8_t {
   NONE = 0,
-  POSITION_FEEDBACK = 1,
+  BLIND_REPLY = 1,
 };
 
 enum class DeliveryTimeoutAction : uint8_t {
@@ -28,7 +28,10 @@ struct PendingDeliveryPolicy {
   bool allow_retry{false};
 };
 
-bool frame_confirms_delivery(const ParsedFrame &parsed, DeliveryExpectation expectation);
+bool frame_confirms_delivery(const ParsedFrame &parsed, const std::string &blind_id,
+                             DeliveryExpectation expectation,
+                             const std::string &expected_ack_token = "",
+                             const std::string &expected_ack_prefix = "");
 DeliveryTimeoutAction next_delivery_timeout_action(const PendingDeliveryPolicy &policy, uint32_t now_ms);
 
 }  // namespace arc_bridge

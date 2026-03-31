@@ -3,9 +3,30 @@
 namespace esphome {
 namespace arc_bridge {
 
-bool frame_confirms_delivery(const ParsedFrame &parsed, DeliveryExpectation expectation) {
+namespace {
+
+bool matches_prefix_(const std::string &value, const std::string &prefix) {
+  return !prefix.empty() && value.rfind(prefix, 0) == 0;
+}
+
+}  // namespace
+
+bool frame_confirms_delivery(const ParsedFrame &parsed, const std::string &blind_id,
+                             DeliveryExpectation expectation,
+                             const std::string &expected_ack_token,
+                             const std::string &expected_ack_prefix) {
+  if (parsed.id != blind_id) {
+    return false;
+  }
+
   switch (expectation) {
-    case DeliveryExpectation::POSITION_FEEDBACK:
+    case DeliveryExpectation::BLIND_REPLY:
+      if (!expected_ack_token.empty() && parsed.reply_token == expected_ack_token) {
+        return true;
+      }
+      if (matches_prefix_(parsed.reply_token, expected_ack_prefix)) {
+        return true;
+      }
       return parsed.lost_link || parsed.not_paired || parsed.no_position ||
              static_cast<bool>(parsed.position_percent);
     case DeliveryExpectation::NONE:
