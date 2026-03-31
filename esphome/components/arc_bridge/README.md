@@ -145,7 +145,7 @@ button:
 #──────────────────────────────────────────────
 binary_sensor:
   - platform: gpio
-    name: "Button GPIO36 Pair"
+    name: "Button Pair"
     pin:
       number: GPIO36
       mode:
@@ -155,11 +155,27 @@ binary_sensor:
       - lambda: |-
           id(arc)->send_pair_command();
 
+  - platform: gpio
+    name: "Button Reboot"
+    pin:
+      number: GPIO39
+      mode:
+        input: true
+      inverted: true
+    on_press:
+      then:
+        - lambda: |-
+            ESP_LOGI("reboot", "Manual reboot triggered (GPIO39)");
+            App.safe_reboot();
+
 external_components:
   - source: github://redstorm1/arc-bridge
     components: [arc_bridge, arc_bridge_group]
     refresh: 1s
 
+# ──────────────────────────────────────────────
+# UART (STM32 link)
+# ──────────────────────────────────────────────
 uart:
   - id: rf_a
     rx_pin: GPIO13    # STM32 RX ← ESP TX
