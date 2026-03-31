@@ -3,16 +3,16 @@
 This component is for use with the Pulse 2 Hub after installing ESPHome onto the hardware:
 https://www.geektech.co.nz/esphome-pulse-2-hub
 
-It talks to the Pulse 2 board firmware over the onboard UART bridge using 3-character blind IDs. It is **not a raw Pulse 1 RS485 implementation**, so this repo intentionally stays Pulse 2/UART-first even when it borrows safe query ideas from the Pulse 1 protocol reference.
+This ESPHome component talks to the Pulse 2 board firmware over the ESP32 UART bridge using 3-character blind IDs. It is **not a raw Pulse 1 RS485 implementation**, so this repo stays Pulse 2/UART-first.
 
 ## Features
 
-- Cover control for `open`, `close`, `stop`, and `set_position`
-- First-class group covers built from existing `arc_bridge` covers
-- Round-robin auto-polling for per-blind position updates
-- Optional per-blind sensors for link quality, status, voltage, derived battery level, speed, version, and limits state
-- Safe manual bridge actions for pairing, refresh, favorite position, and jog open/close
-- ESPHome support on both `esp-idf` and Arduino
+- Full cover entity control (`open`, `close`, `stop`, `move to %`)
+- Group covers using `arc_bridge_group`
+- Round-robin polling for position, link quality, and static blind data
+- Optional link quality, status, voltage, battery level, speed, version, and limits sensors
+- Pairing, refresh, favorite, and jog actions from ESPHome buttons
+- Works with ESPHome on both `esp-idf` and Arduino
 
 ## Installation
 
@@ -47,13 +47,23 @@ arc_bridge:
   command_retry_timeout: 1500ms
 ```
 
-`auto_poll_interval` is the time between each blind query, not a full sweep. The bridge polls one blind at a time in round-robin order so larger installs do not burst the UART bus every cycle.
+Arduino is still supported if you prefer `framework.type: arduino`.
 
-`motion_tx_gap` controls the internal spacing for motion commands like open, close, stop, move, favorite, and jog. The default remains `200 ms`.
+## Auto-Poll (Recommended)
 
-`command_retries` controls how many times the bridge will replay safe motion commands after a missed reply. `command_retry_timeout` controls how long it waits before sending a verification `r?` query and, if needed, retrying.
+The bridge rotates through known blinds and queries them one at a time for position and RF status.
 
-## Cover Configuration
+| Setting | Description | Default |
+|--------:|-------------|---------|
+| `auto_poll` | Enables background polling | `true` |
+| `auto_poll_interval` | Time between each blind query | `10s` |
+| `motion_tx_gap` | Internal spacing for motion commands | `200ms` |
+| `command_retries` | Retries safe motion commands after a missed reply | `1` |
+| `command_retry_timeout` | Wait time before verification and retry | `1500ms` |
+
+Setting `auto_poll_interval: 0s` disables polling completely.
+
+## Cover Entities
 
 ```yaml
 cover:
@@ -65,16 +75,15 @@ cover:
     blind_id: "USZ"
     link_quality: lq_usz
     status: status_usz
-    version: version_usz
-    speed: speed_usz
-    limits: limits_usz
     voltage: voltage_usz
     battery_level: battery_usz
 ```
 
-Each cover supports open, close, stop, and set position. New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
+Each cover supports open, close, stop, and set position.
 
-## Group Covers
+New configs should use `voltage:`. The legacy `power:` key is still accepted for backwards compatibility.
+
+If you want to control several blinds as one cover:
 
 ```yaml
 cover:
@@ -84,26 +93,7 @@ cover:
     members: [usz, khn, hw4, j8u]
 ```
 
-`members:` references existing `arc_bridge` cover IDs, so the group behaves like a normal ESPHome cover without `lambda` fan-out.
-
-Group motion is still serialized one blind at a time, but motion commands now use a shorter internal `200 ms` send gap while poll and static query traffic stay on the slower conservative pacing.
-
-The bridge also watches for a blind reply after motion commands. If a blind stays silent, it sends one verification query and can replay safe commands like open, close, stop, and move. Favorite and jog commands are verified but not auto-replayed to avoid duplicate nudges.
-
-```yaml
-button:
-  - platform: template
-    name: "Living Room to 50%"
-    on_press:
-      - cover.control:
-          id: living_room
-          position: 50%
-
-  - platform: template
-    name: "Open Living Room"
-    on_press:
-      - cover.open: living_room
-```
+`members:` takes existing `arc_bridge` cover IDs. Grouped moves are still sent one blind at a time, just with the faster motion gap.
 
 ## Optional Sensors
 
@@ -114,12 +104,6 @@ sensor:
     name: "Office Blind Link Quality"
     unit_of_measurement: "dBm"
     icon: "mdi:signal"
-
-  - platform: template
-    id: speed_usz
-    name: "Office Blind Speed"
-    unit_of_measurement: "rpm"
-    icon: "mdi:speedometer"
 
   - platform: template
     id: voltage_usz
@@ -135,6 +119,12 @@ sensor:
     accuracy_decimals: 0
     device_class: battery
 
+  - platform: template
+    id: speed_usz
+    name: "Office Blind Speed"
+    unit_of_measurement: "rpm"
+    icon: "mdi:speedometer"
+
 text_sensor:
   - platform: template
     id: status_usz
@@ -149,23 +139,17 @@ text_sensor:
     name: "Office Blind Limits"
 ```
 
-Status values currently include `Online`, `Offline`, `Not Paired`, and `No Position`.
+These are updated from ARC messages:
 
-`version` publishes the decoded motor type and version, for example `AC v2.1`.
-
-`limits` publishes human-readable values:
-
-- `Unset`
-- `Upper/Lower Set`
-- `Upper/Lower/Preferred Set`
-
-A voltage reading of `0.00 V` indicates an AC or mains-powered motor.
-
-`battery_level` is a derived estimate from `pVc` using a fixed 3S Li-ion curve. It is a convenience estimate rather than a precise fuel gauge, and AC motors leave it unavailable.
+- `status`: `Online`, `Offline`, `Not Paired`, `No Position`
+- `version`: decoded motor type/version such as `AC v2.1`
+- `limits`: `Unset`, `Upper/Lower Set`, `Upper/Lower/Preferred Set`
+- `voltage` / `power`: `0.00 V` indicates an AC or mains-powered motor
+- `battery_level`: derived from `pVc` using a fixed 3S Li-ion curve
 
 ## Manual Actions
 
-Use template buttons or lambdas for safe manual actions instead of relying on undocumented services.
+You can trigger pairing and other safe bridge actions directly from ESPHome or Home Assistant:
 
 ```yaml
 button:
@@ -200,20 +184,25 @@ button:
           id(arc)->send_jog_close("USZ");
 ```
 
-## Protocol Notes
+There are no built-in discovery or pairing ESPHome services in this repo. Use the bridge methods above instead.
 
-- The component understands position replies such as `!USZr100b180;` and in-motion replies such as `!USZ<09b00;`
-- Voltage uses `pVc`, speed uses `pSc`, limits use `pP`, and version uses `v?`
-- Lost-link `Enl` and not-paired `Enp` states are handled distinctly
-- Motion commands use a shorter internal send gap than poll/static queries
-- Motion commands can send a verification query and retry safe commands when a blind stays silent
-- The code does not expose destructive Pulse 1-style admin commands such as address rewrites, resets, or factory defaults as first-class YAML features
+## Protocol Details
 
-## Limitations
+Standard frame format: `!<id><command><data>;`
+
+Examples:
+
+- `!USZr100b180;` -> Blind `USZ`, position `100`, link quality present
+- `!USZEnl;` -> Lost link
+- `!USZEnp;` -> Not paired
+
+Position mapping: ARC `0 = open` -> HA `1.0`, ARC `100 = closed` -> HA `0.0`
+
+## Known Limitations
 
 - No encrypted ARC+ protocol support
 - No raw Pulse 1 hub-address mode such as `!XXXDYYY...;`
-- Static values like version and limits are only refreshed automatically when first discovered or when `send_query_all()` is called
+- Static values like version and limits are refreshed when first discovered and when `send_query_all()` is used
 
 ## License
 

@@ -1,25 +1,151 @@
 # ARC Bridge External Component for ESPHome
 
-This external component integrates Dooya ARC / Pulse 2 blinds with ESPHome running on ESP32 boards.
+This external component allows direct integration of Dooya ARC / Pulse 2 RF blinds with ESPHome running on ESP32 boards.
 
-It talks to the Pulse 2 board firmware over UART using 3-character blind IDs and blind-level ARC frames such as `!USZr?;`. It is **not a raw Pulse 1 RS485 implementation**, so hub-addressed frames like `!XXXDYYY...;` remain out of scope for this component.
+It talks to the Pulse 2 board firmware over UART using 3-character blind IDs. It is **not a raw Pulse 1 RS485 implementation**, so hub-addressed frames like `!XXXDYYY...;` remain out of scope for this component.
 
-## Highlights
+---
 
-- Per-blind cover control
-- First-class group covers using existing `arc_bridge` covers as members
-- Round-robin auto-polling
-- Optional link-quality, status, voltage, derived battery level, speed, version, and limits sensors
-- Safe manual actions for pairing, refresh, favorite position, and jog control
-- Support for both `esp-idf` and Arduino ESPHome frameworks
+## Features
 
-## Minimal Setup
+- Full UART protocol parsing (`!IDr###;`, `!IDEnp;`, `!IDEnl;`, `!IDpVc###;`)
+- Individual blind control (`open`, `close`, `stop`, `set_position`)
+- Group covers using `arc_bridge_group`
+- Automatic RF link quality and status sensors
+- Optional voltage, battery level, speed, version, and limits sensors
+- Safe manual actions for pairing, refresh, favorite, and jog control
+- Works with `esp-idf` and Arduino ESPHome frameworks
+
+---
+
+## Example YAML
 
 ```yaml
+esphome:
+  name: pulse2hubdev
+  friendly_name: pulse2hubdev
+  on_boot:
+    priority: -200
+    then:
+      - logger.log: "Waiting for Ethernet link ..."
+      - wait_until:
+          lambda: 'return id(eth0).is_connected();'
+      - logger.log: "Ethernet up"
+      - switch.turn_on: green
+
 esp32:
   board: esp32dev
   framework:
     type: esp-idf
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+ethernet:
+  id: eth0
+  type: LAN8720
+  mdc_pin: GPIO16
+  mdio_pin: GPIO23
+  clk:
+    pin: GPIO0
+    mode: CLK_EXT_IN
+  phy_addr: 1
+  power_pin: GPIO2
+
+ota:
+  - platform: esphome
+
+web_server:
+  port: 80
+
+i2c:
+  id: i2c_bus
+  sda: GPIO14
+  scl: GPIO4
+  frequency: 100kHz
+  scan: false
+
+pca9554:
+  - id: pca9554a_device
+    i2c_id: i2c_bus
+    address: 0x41
+
+switch:
+  - platform: gpio
+    name: "LED Red"
+    id: red
+    pin:
+      pca9554: pca9554a_device
+      number: 0
+      mode: { output: true }
+      inverted: true
+
+  - platform: gpio
+    name: "LED Blue"
+    id: blue
+    pin:
+      pca9554: pca9554a_device
+      number: 1
+      mode: { output: true }
+      inverted: true
+
+  - platform: gpio
+    name: "LED Green"
+    id: green
+    pin:
+      pca9554: pca9554a_device
+      number: 2
+      mode: { output: true }
+      inverted: true
+
+button:
+  - platform: template
+    name: "ARC Bridge Pairing"
+    icon: "mdi:link-plus"
+    on_press:
+      - lambda: |-
+          id(arc)->send_pair_command();
+
+  - platform: template
+    name: "ARC Bridge Refresh"
+    icon: "mdi:refresh"
+    on_press:
+      - lambda: |-
+          id(arc)->send_query_all();
+
+  - platform: template
+    name: "Office Blind Favorite"
+    icon: "mdi:star"
+    on_press:
+      - lambda: |-
+          id(arc)->send_favorite("USZ");
+
+  - platform: template
+    name: "Office Blind Jog Open"
+    icon: "mdi:arrow-up-bold"
+    on_press:
+      - lambda: |-
+          id(arc)->send_jog_open("USZ");
+
+  - platform: template
+    name: "Office Blind Jog Close"
+    icon: "mdi:arrow-down-bold"
+    on_press:
+      - lambda: |-
+          id(arc)->send_jog_close("USZ");
+
+binary_sensor:
+  - platform: gpio
+    name: "Button GPIO36 Pair"
+    pin:
+      number: GPIO36
+      mode:
+        input: true
+      inverted: true
+    on_press:
+      - lambda: |-
+          id(arc)->send_pair_command();
 
 external_components:
   - source: github://redstorm1/arc-bridge
@@ -44,17 +170,7 @@ arc_bridge:
   motion_tx_gap: 200ms
   command_retries: 1
   command_retry_timeout: 1500ms
-```
 
-`auto_poll_interval` is per blind. Each interval queues the next valid blind in round-robin order instead of polling every blind at once.
-
-`motion_tx_gap` controls the internal spacing for motion commands like open, close, stop, move, favorite, and jog. The default remains `200 ms`.
-
-`command_retries` sets how many times the bridge will replay safe motion commands after a missed blind reply. `command_retry_timeout` sets how long it waits before sending a verification `r?` query and, if needed, retrying.
-
-## Cover Example
-
-```yaml
 cover:
   - platform: arc_bridge
     bridge_id: arc
@@ -69,148 +185,162 @@ cover:
     limits: limits_usz
     power: power_usz
     battery_level: battery_usz
-```
 
-`power:` is still supported for backwards compatibility. New configs can also use `voltage:`.
+  - platform: arc_bridge
+    bridge_id: arc
+    id: zxe
+    device_class: shade
+    name: "Guest Blind"
+    blind_id: "ZXE"
+    link_quality: lq_zxe
+    status: status_zxe
 
-## Group Cover Example
+  - platform: arc_bridge
+    bridge_id: arc
+    id: nom
+    device_class: curtain
+    name: "Living Drape"
+    blind_id: "NOM"
+    link_quality: lq_nom
+    status: status_nom
 
-```yaml
-cover:
+  - platform: arc_bridge
+    bridge_id: arc
+    id: ovj
+    device_class: curtain
+    name: "Guest Drape"
+    blind_id: "OVJ"
+    link_quality: lq_ovj
+    status: status_ovj
+
+  - platform: arc_bridge
+    bridge_id: arc
+    id: txy
+    device_class: shade
+    name: "Living Window Blind"
+    blind_id: "TXY"
+    link_quality: lq_txy
+    status: status_txy
+
+  - platform: arc_bridge
+    bridge_id: arc
+    id: mlt
+    device_class: shade
+    name: "Living Door Blind"
+    blind_id: "MLT"
+    link_quality: lq_mlt
+    status: status_mlt
+
   - platform: arc_bridge_group
     id: living_room
     name: "Living Room"
-    members: [usz, khn, hw4, j8u]
-```
+    members: [nom, txy, mlt]
 
-`members:` takes existing `arc_bridge` cover IDs, so the group can be controlled with standard ESPHome cover actions instead of lambda fan-out.
-
-Grouped motion is still serialized one blind at a time, but motion commands now use a shorter internal `200 ms` send gap while poll and static query traffic stay on the slower conservative pacing.
-
-The bridge also tracks motion-command delivery. If a blind stays silent after open, close, stop, or move, the bridge sends a verification query and can retry once. Favorite and jog commands are verified too, but they are not auto-replayed to avoid accidental double nudges.
-
-```yaml
-button:
-  - platform: template
-    name: "Living Room to 50%"
-    on_press:
-      - cover.control:
-          id: living_room
-          position: 50%
-
-  - platform: template
-    name: "Open Living Room"
-    on_press:
-      - cover.open: living_room
-```
-
-## Optional Sensors
-
-```yaml
 sensor:
   - platform: template
     id: lq_usz
     name: "Office Blind Link Quality"
     unit_of_measurement: "dBm"
     icon: "mdi:signal"
-
   - platform: template
-    id: speed_usz
-    name: "Office Blind Speed"
-    unit_of_measurement: "rpm"
-    icon: "mdi:speedometer"
-
+    id: lq_zxe
+    name: "Guest Blind Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
+  - platform: template
+    id: lq_nom
+    name: "Living Drape Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
+  - platform: template
+    id: lq_ovj
+    name: "Guest Drape Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
+  - platform: template
+    id: lq_txy
+    name: "Living Window Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
+  - platform: template
+    id: lq_mlt
+    name: "Living Door Link Quality"
+    unit_of_measurement: "dBm"
+    icon: "mdi:signal"
   - platform: template
     id: power_usz
     name: "Office Blind Voltage"
     unit_of_measurement: "V"
     accuracy_decimals: 2
     icon: "mdi:battery"
-
   - platform: template
     id: battery_usz
     name: "Office Blind Battery"
     unit_of_measurement: "%"
     accuracy_decimals: 0
     device_class: battery
+  - platform: template
+    id: speed_usz
+    name: "Office Blind Speed"
+    unit_of_measurement: "rpm"
+    icon: "mdi:speedometer"
 
 text_sensor:
   - platform: template
     id: status_usz
     name: "Office Blind Status"
-
+  - platform: template
+    id: status_zxe
+    name: "Guest Blind Status"
+  - platform: template
+    id: status_nom
+    name: "Living Drape Status"
+  - platform: template
+    id: status_ovj
+    name: "Guest Drape Status"
+  - platform: template
+    id: status_txy
+    name: "Living Window Status"
+  - platform: template
+    id: status_mlt
+    name: "Living Door Status"
   - platform: template
     id: version_usz
     name: "Office Blind Version"
-
   - platform: template
     id: limits_usz
     name: "Office Blind Limits"
 ```
 
-Runtime values:
+Arduino is still supported if you want to use `framework.type: arduino`.
+
+`power:` is shown above for backwards compatibility. New configs can also use `voltage:`.
+
+## Notes
+
+- `auto_poll_interval` is per blind. The bridge rotates through known blinds instead of polling all blinds at once.
+- `motion_tx_gap` applies to motion commands such as open, close, stop, move, favorite, and jog.
+- `command_retries` and `command_retry_timeout` control the verification-and-retry path for safe motion commands.
+- `members:` in `arc_bridge_group` takes existing `arc_bridge` cover IDs.
+- Grouped motion is still serialized one blind at a time.
+
+## Optional Sensor Values
+
+The optional sensors above are updated from ARC replies:
 
 - `status`: `Online`, `Offline`, `Not Paired`, `No Position`
 - `version`: decoded motor type/version such as `AC v2.1`
 - `limits`: `Unset`, `Upper/Lower Set`, `Upper/Lower/Preferred Set`
 - `power` / `voltage`: `0.00 V` means AC or mains-powered
-- `battery_level`: derived 3S Li-ion estimate from `pVc`; AC motors remain unavailable
-
-## Manual Actions
-
-Expose manual actions through template buttons or lambdas:
-
-```yaml
-button:
-  - platform: template
-    name: "ARC Pairing"
-    on_press:
-      - lambda: |-
-          id(arc)->send_pair_command();
-
-  - platform: template
-    name: "ARC Query All"
-    on_press:
-      - lambda: |-
-          id(arc)->send_query_all();
-
-  - platform: template
-    name: "Office Blind Favorite"
-    on_press:
-      - lambda: |-
-          id(arc)->send_favorite("USZ");
-
-  - platform: template
-    name: "Office Blind Jog Open"
-    on_press:
-      - lambda: |-
-          id(arc)->send_jog_open("USZ");
-
-  - platform: template
-    name: "Office Blind Jog Close"
-    on_press:
-      - lambda: |-
-          id(arc)->send_jog_close("USZ");
-```
+- `battery_level`: derived 3S Li-ion estimate from `pVc`
 
 There are no built-in discovery, refresh, or pairing ESPHome services in this repo. Use the bridge methods above instead.
 
-## Protocol Coverage
+## Protocol Notes
 
-The component currently handles:
-
-- Final-position replies like `!USZr100b180;`
-- In-motion position replies like `!USZ<09b00;`
+- Final-position replies such as `!USZr100b180;`
+- In-motion replies such as `!USZ<09b00;`
 - Lost-link `Enl` and not-paired `Enp`
-- Voltage `pVc`
-- Speed `pSc`
-- Limits `pP`
-- Version `v?`
-- Faster internal pacing for motion commands than for poll/static queries
-- Verification-query delivery checks for motion commands, with retries for safe commands only
+- Voltage `pVc`, speed `pSc`, limits `pP`, and version `v?`
 
-It does not expose destructive admin commands such as hub resets, address rewrites, delete/unpair operations, or factory reset as first-class YAML features.
-
-## Framework Notes
-
-This component remains compatible with ESPHome on the Arduino framework. Existing Arduino-based nodes can keep the same `arc_bridge`, `bridge_id`, and `uart_id` configuration.
+The component does not expose destructive admin commands such as address rewrites, delete/unpair operations, or factory reset as first-class YAML features.
