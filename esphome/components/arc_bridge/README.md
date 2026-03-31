@@ -40,7 +40,7 @@ esp32:
 
 logger:
   level: DEBUG
-  baud_rate: 0
+  baud_rate: 0       # disable serial logging, free UART0 pins
 
 ethernet:
   id: eth0
@@ -53,12 +53,17 @@ ethernet:
   phy_addr: 1
   power_pin: GPIO2
 
+api:
+
 ota:
   - platform: esphome
 
 web_server:
   port: 80
 
+# ──────────────────────────────────────────────
+# I2C & PCA9554 (LEDs)
+# ──────────────────────────────────────────────
 i2c:
   id: i2c_bus
   sda: GPIO14
@@ -135,6 +140,9 @@ button:
       - lambda: |-
           id(arc)->send_jog_close("USZ");
 
+#──────────────────────────────────────────────
+#External Buttons
+#──────────────────────────────────────────────
 binary_sensor:
   - platform: gpio
     name: "Button GPIO36 Pair"
@@ -154,8 +162,8 @@ external_components:
 
 uart:
   - id: rf_a
-    rx_pin: GPIO13
-    tx_pin: GPIO15
+    rx_pin: GPIO13    # STM32 RX ← ESP TX
+    tx_pin: GPIO15    # STM32 TX → ESP RX
     baud_rate: 115200
     data_bits: 8
     parity: NONE

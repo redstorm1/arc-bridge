@@ -3,7 +3,8 @@
 This component is for use with the Pulse 2 Hub after installing ESPHome onto the hardware:
 https://www.geektech.co.nz/esphome-pulse-2-hub
 
-This ESPHome component talks to the Pulse 2 board firmware over the ESP32 UART bridge using 3-character blind IDs. It is **not a raw Pulse 1 RS485 implementation**, so this repo stays Pulse 2/UART-first.
+This ESPHome component implements the Rollease Acmeda ARC ASCII serial protocol over an ESP32 UART interface.
+It allows direct control of ARC blinds without the original Pulse 2 Hub — supporting full cover control, automatic discovery, and live feedback (RSSI, status, and position).
 
 ## Features
 
@@ -27,10 +28,13 @@ external_components:
     components: [arc_bridge, arc_bridge_group]
     refresh: 1s
 
+# ──────────────────────────────────────────────
+# UART (STM32 link)
+# ──────────────────────────────────────────────
 uart:
   - id: rf_a
-    rx_pin: GPIO13
-    tx_pin: GPIO15
+    rx_pin: GPIO13    # ESP RX  ← STM32 TX
+    tx_pin: GPIO15    # ESP TX  → STM32 RX
     baud_rate: 115200
     data_bits: 8
     parity: NONE
@@ -40,7 +44,7 @@ uart:
 arc_bridge:
   id: arc
   uart_id: rf_a
-  auto_poll: true
+  auto_poll: true        # set false to disable queries entirely
   auto_poll_interval: 10s
   motion_tx_gap: 200ms
   command_retries: 1
