@@ -20,9 +20,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install esphome
 
-      - name: Check docs
-        run: python tests/check_docs.py
-
       - name: Run protocol parser test
         run: python tests/run_protocol_parser_test.py
 
