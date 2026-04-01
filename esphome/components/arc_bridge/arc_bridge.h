@@ -1,6 +1,7 @@
 #pragma once
 
 #include "delivery.h"
+#include "pairing.h"
 #include "tx_queue.h"
 
 #include "esphome/core/component.h"
@@ -53,6 +54,8 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void map_version_sensor(const std::string &id, text_sensor::TextSensor *s);
   void map_speed_sensor(const std::string &id, sensor::Sensor *s);
   void map_limits_sensor(const std::string &id, text_sensor::TextSensor *s);
+  void set_pairing_status_sensor(text_sensor::TextSensor *sensor);
+  void set_last_paired_id_sensor(text_sensor::TextSensor *sensor);
 
   // Runtime tuning for polling, retries, and motion pacing.
   void set_auto_poll_enabled(bool enabled) { this->auto_poll_enabled_ = enabled; }
@@ -86,6 +89,10 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void acknowledge_pending_delivery_(const ParsedFrame &parsed);
   void process_pending_deliveries_();
   void send_verification_query_(const std::string &id);
+  void publish_pairing_status_(const std::string &status);
+  void publish_last_paired_id_(const std::string &id);
+  void handle_pairing_outcome_(const PairingOutcome &outcome);
+  void process_pairing_timeout_();
 
   // ===============================
   // CONSTANTS (Option A ordering)
@@ -94,6 +101,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   static const uint32_t STARTUP_GUARD_MS  = 10000;      // 10 seconds
   static const uint32_t MOVEMENT_QUIET_MS = 90000;      // 90 seconds
   static const uint32_t TX_WATCHDOG_MS    = 5000;       // 5 seconds
+  static const uint32_t PAIRING_TIMEOUT_MS = 30000;     // 30 seconds
   static const uint8_t COMMAND_RETRY_COUNT = 1;         // one resend after verification
   static const uint32_t COMMAND_RETRY_TIMEOUT_MS = 1500;  // wait before verify/retry
 
@@ -122,6 +130,9 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   std::unordered_map<std::string, text_sensor::TextSensor *> version_map_;
   std::unordered_map<std::string, sensor::Sensor *> speed_map_;
   std::unordered_map<std::string, text_sensor::TextSensor *> limits_map_;
+  text_sensor::TextSensor *pairing_status_sensor_{nullptr};
+  text_sensor::TextSensor *last_paired_id_sensor_{nullptr};
+  PairingSession pairing_session_;
   // Track motion-command delivery per blind so retries stay scoped.
   struct PendingCommandDelivery {
     TxQueueItem item;

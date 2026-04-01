@@ -52,9 +52,14 @@ ParsedFrame parse_arc_frame(const std::string &frame) {
   const size_t reply_end = rest.find(',');
   parsed.reply_token = rest.substr(0, reply_end == std::string::npos ? rest.size() : reply_end);
 
+  parsed.address_ack = parsed.reply_token == "A";
   parsed.lost_link = parsed.reply_token == "Enl" || rest.find("Enl") != std::string::npos;
   parsed.not_paired = parsed.reply_token == "Enp" || rest.find("Enp") != std::string::npos;
   parsed.no_position = parsed.reply_token == "U";
+  if (!parsed.lost_link && !parsed.not_paired && parsed.reply_token.size() == 3 &&
+      parsed.reply_token.front() == 'E') {
+    parsed.error_code = parsed.reply_token.substr(1);
+  }
 
   size_t pvc_pos = rest.find("pVc");
   if (pvc_pos != std::string::npos) {

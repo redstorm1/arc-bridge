@@ -40,12 +40,22 @@ arc_bridge:
   motion_tx_gap: 250ms
   command_retries: 1
   command_retry_timeout: 1500ms
+  pairing_status: pairing_status
+  last_paired_id: last_paired_id
 """
 
 VALID_CONFIG_BODY = """
 button:
   - platform: template
+    name: "ARC Pairing"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(arc)->send_pair_command();
+
+  - platform: template
     name: "ARC Query All"
+    entity_category: diagnostic
     on_press:
       - lambda: |-
           id(arc)->send_query_all();
@@ -75,6 +85,13 @@ cover:
     device_class: shade
     blind_id: "KHN"
 
+  - platform: arc_bridge
+    bridge_id: arc
+    id: nom
+    name: "Living Drape"
+    device_class: curtain
+    blind_id: "NOM"
+
   - platform: arc_bridge_group
     id: living_room
     name: "Living Room"
@@ -85,14 +102,17 @@ sensor:
   - platform: template
     id: lq_usz
     name: "Office Blind Link Quality"
+    entity_category: diagnostic
     unit_of_measurement: "dBm"
   - platform: template
     id: speed_usz
     name: "Office Blind Speed"
+    entity_category: diagnostic
     unit_of_measurement: "rpm"
   - platform: template
     id: power_usz
     name: "Office Blind Voltage"
+    entity_category: diagnostic
     unit_of_measurement: "V"
     accuracy_decimals: 2
   - platform: template
@@ -104,14 +124,25 @@ sensor:
 
 text_sensor:
   - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
+  - platform: template
     id: status_usz
     name: "Office Blind Status"
+    entity_category: diagnostic
   - platform: template
     id: version_usz
     name: "Office Blind Version"
+    entity_category: diagnostic
   - platform: template
     id: limits_usz
     name: "Office Blind Limits"
+    entity_category: config
 """
 
 BATTERY_ONLY_BODY = """
@@ -131,6 +162,16 @@ sensor:
     unit_of_measurement: "%"
     accuracy_decimals: 0
     device_class: battery
+
+text_sensor:
+  - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
 """
 
 INVALID_GROUP_EMPTY_BODY = """
@@ -146,6 +187,16 @@ cover:
     id: living_room
     name: "Living Room"
     members: []
+
+text_sensor:
+  - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
 """
 
 INVALID_GROUP_DUPLICATE_BODY = """
@@ -161,6 +212,16 @@ cover:
     id: living_room
     name: "Living Room"
     members: [usz, usz]
+
+text_sensor:
+  - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
 """
 
 INVALID_GROUP_NESTED_BODY = """
@@ -181,6 +242,16 @@ cover:
     id: upstairs
     name: "Upstairs"
     members: [living_room]
+
+text_sensor:
+  - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
 """
 
 INVALID_GROUP_SELF_BODY = """
@@ -196,6 +267,16 @@ cover:
     id: living_room
     name: "Living Room"
     members: [living_room]
+
+text_sensor:
+  - platform: template
+    id: pairing_status
+    name: "ARC Pairing Status"
+    entity_category: diagnostic
+  - platform: template
+    id: last_paired_id
+    name: "ARC Last Paired ID"
+    entity_category: diagnostic
 """
 
 

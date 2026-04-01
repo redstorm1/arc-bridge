@@ -66,6 +66,16 @@ void test_unavailable_and_pairing_states() {
   const ParsedFrame not_paired = parse_arc_frame("!USZEnp;");
   require(not_paired.valid && not_paired.not_paired, "Enp should map to not paired");
 
+  const ParsedFrame address_ack = parse_arc_frame("!USZA;");
+  require(address_ack.valid && address_ack.address_ack, "A should map to an address acknowledgement");
+
+  const ParsedFrame generic_error = parse_arc_frame("!USZEdf;");
+  require(generic_error.valid && static_cast<bool>(generic_error.error_code) &&
+              *generic_error.error_code == "df",
+          "generic Exx should extract the error code");
+  require(!generic_error.lost_link && !generic_error.not_paired,
+          "generic Exx errors should not be remapped to Enl/Enp states");
+
   const ParsedFrame no_position = parse_arc_frame("!USZU;");
   require(no_position.valid && no_position.no_position, "U should map to no-position feedback");
 }

@@ -45,7 +45,7 @@ static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
 }
 
 static std::string format_version_text_(const ParsedFrame &parsed) {
-  if (!parsed.motor_type_code.has_value() || !parsed.version_code.has_value()) {
+  if (!static_cast<bool>(parsed.motor_type_code) || !static_cast<bool>(parsed.version_code)) {
     return "";
   }
 
@@ -71,7 +71,7 @@ static std::string format_version_text_(const ParsedFrame &parsed) {
       break;
   }
 
-  if (parsed.version_major.has_value() && parsed.version_minor.has_value()) {
+  if (static_cast<bool>(parsed.version_major) && static_cast<bool>(parsed.version_minor)) {
     char buffer[32];
     snprintf(buffer, sizeof(buffer), "%s v%d.%d", type_name.c_str(),
              *parsed.version_major, *parsed.version_minor);
@@ -243,7 +243,7 @@ void ARCBridgeComponent::loop() {
   const bool quiet_due_to_motion = (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
   const bool auto_poll_active = this->startup_guard_cleared_ && this->auto_poll_enabled_ &&
                                 this->query_interval_ms_ > 0 && !this->covers_.empty() &&
-                                !quiet_due_to_motion;
+                                !quiet_due_to_motion && !this->pairing_session_.active;
 
   // -----------------------------
   // AUTO POLL
@@ -279,6 +279,7 @@ void ARCBridgeComponent::loop() {
   // -----------------------------
   this->process_tx_queue_();
   this->process_pending_deliveries_();
+  this->process_pairing_timeout_();
 
   // -----------------------------
   // TX WATCHDOG (movement-aware)
@@ -551,8 +552,12 @@ void ARCBridgeComponent::send_query_all() {
 
 void ARCBridgeComponent::send_pair_command() {
   this->drop_pending_polls_();
-  this->queue_tx_front("!000&;", TxPacingClass::STANDARD, false);
-  ESP_LOGI(TAG, "TX queued (priority) -> !000&; (pairing)");
+  start_pairing_session(this->pairing_session_, millis());
+  this->publish_pairing_status_("Pairing");
+
+  const std::string frame = build_pair_command_frame();
+  this->queue_tx_front(frame, TxPacingClass::STANDARD, false);
+  ESP_LOGI(TAG, "TX queued (priority) -> %s (pairing: random assignment)", frame.c_str());
 }
 
 void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
@@ -655,6 +660,19 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   this->acknowledge_pending_delivery_(parsed);
 
+  const PairingOutcome pairing_outcome = handle_pairing_frame(this->pairing_session_, parsed);
+  if (pairing_outcome.type != PairingOutcomeType::NONE) {
+    this->handle_pairing_outcome_(pairing_outcome);
+    return;
+  }
+
+  if (static_cast<bool>(parsed.error_code)) {
+    const std::string error_text = describe_error_code(*parsed.error_code);
+    ESP_LOGW(TAG, "[%s] Error %s -> %s", parsed.id.c_str(), parsed.error_code->c_str(),
+             error_text.c_str());
+    return;
+  }
+
   const std::string &id = parsed.id;
   auto *cover = find_mapped_(this->cover_map_, id);
   auto *lq_sensor = find_mapped_(this->lq_map_, id);
@@ -665,30 +683,30 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
 
   float dbm = NAN;
   float pct = NAN;
-  if (parsed.rssi_raw.has_value()) {
+  if (static_cast<bool>(parsed.rssi_raw)) {
     decode_rssi(static_cast<uint8_t>(*parsed.rssi_raw), dbm, pct);
     ESP_LOGI(TAG, "[%s] R=%02X -> %.1f dBm (%.1f%%)", id.c_str(),
              *parsed.rssi_raw, dbm, pct);
   }
 
   // Handle pVc replies before availability/status updates.
-  if (parsed.voltage_centivolts.has_value()) {
+  if (static_cast<bool>(parsed.voltage_centivolts)) {
     this->handle_pvc_value_(id, std::to_string(*parsed.voltage_centivolts));
   }
 
-  if (parsed.speed_rpm.has_value() && speed_sensor != nullptr) {
+  if (static_cast<bool>(parsed.speed_rpm) && speed_sensor != nullptr) {
     speed_sensor->publish_state(static_cast<float>(*parsed.speed_rpm));
     ESP_LOGD(TAG, "[%s] speed=%d rpm", id.c_str(), *parsed.speed_rpm);
   }
 
-  if (parsed.version_code.has_value() && version_sensor != nullptr) {
+  if (static_cast<bool>(parsed.version_code) && version_sensor != nullptr) {
     const std::string version_text = format_version_text_(parsed);
     version_sensor->publish_state(version_text.empty() ? *parsed.version_code : version_text);
     ESP_LOGD(TAG, "[%s] version=%s", id.c_str(),
              version_text.empty() ? parsed.version_code->c_str() : version_text.c_str());
   }
 
-  if (parsed.limits_code.has_value() && limits_sensor != nullptr) {
+  if (static_cast<bool>(parsed.limits_code) && limits_sensor != nullptr) {
     const std::string limits_text = format_limits_text_(*parsed.limits_code);
     limits_sensor->publish_state(limits_text);
     ESP_LOGD(TAG, "[%s] limits=%s", id.c_str(), limits_text.c_str());
@@ -738,7 +756,7 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
     cover->set_available(true);
   }
 
-  if (parsed.position_percent.has_value() && cover != nullptr) {
+  if (static_cast<bool>(parsed.position_percent) && cover != nullptr) {
     cover->publish_raw_position(*parsed.position_percent);
     if (parsed.position_in_motion) {
       ESP_LOGD(TAG, "[%s] In-progress position=%d", id.c_str(), *parsed.position_percent);
@@ -754,6 +772,54 @@ void ARCBridgeComponent::parse_frame(const std::string &frame) {
            parsed.position_percent.value_or(-1),
            parsed.position_in_motion ? "true" : "false",
            dbm);
+}
+
+void ARCBridgeComponent::publish_pairing_status_(const std::string &status) {
+  if (this->pairing_status_sensor_ != nullptr) {
+    this->pairing_status_sensor_->publish_state(status);
+  }
+}
+
+void ARCBridgeComponent::publish_last_paired_id_(const std::string &id) {
+  if (this->last_paired_id_sensor_ != nullptr) {
+    this->last_paired_id_sensor_->publish_state(id);
+  }
+}
+
+void ARCBridgeComponent::handle_pairing_outcome_(const PairingOutcome &outcome) {
+  switch (outcome.type) {
+    case PairingOutcomeType::SUCCESS:
+      this->publish_pairing_status_(outcome.message);
+      this->publish_last_paired_id_(outcome.paired_id);
+      ESP_LOGI(TAG, "[%s] Pairing successful", outcome.paired_id.c_str());
+      break;
+
+    case PairingOutcomeType::ERROR:
+      this->publish_pairing_status_(outcome.message);
+      ESP_LOGW(TAG, "%s", outcome.message.c_str());
+      break;
+
+    case PairingOutcomeType::TIMEOUT:
+      this->publish_pairing_status_(outcome.message);
+      ESP_LOGW(TAG, "Pairing timed out after %u ms", PAIRING_TIMEOUT_MS);
+      break;
+
+    case PairingOutcomeType::GENERIC_ACK:
+      ESP_LOGI(TAG, "[%s] Received admin acknowledgement", outcome.paired_id.c_str());
+      break;
+
+    case PairingOutcomeType::NONE:
+    default:
+      break;
+  }
+}
+
+void ARCBridgeComponent::process_pairing_timeout_() {
+  const PairingOutcome outcome =
+      check_pairing_timeout(this->pairing_session_, millis(), PAIRING_TIMEOUT_MS);
+  if (outcome.type != PairingOutcomeType::NONE) {
+    this->handle_pairing_outcome_(outcome);
+  }
 }
 
 void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
@@ -835,6 +901,16 @@ void ARCBridgeComponent::map_speed_sensor(const std::string &id, sensor::Sensor 
 void ARCBridgeComponent::map_limits_sensor(const std::string &id, text_sensor::TextSensor *sensor) {
   this->limits_map_[id] = sensor;
   ESP_LOGD(TAG, "Mapped limits sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::set_pairing_status_sensor(text_sensor::TextSensor *sensor) {
+  this->pairing_status_sensor_ = sensor;
+  ESP_LOGD(TAG, "Mapped bridge pairing status sensor");
+}
+
+void ARCBridgeComponent::set_last_paired_id_sensor(text_sensor::TextSensor *sensor) {
+  this->last_paired_id_sensor_ = sensor;
+  ESP_LOGD(TAG, "Mapped bridge last paired id sensor");
 }
 
 }  // namespace arc_bridge
