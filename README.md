@@ -211,3 +211,4 @@ Position mapping: ARC `0 = open` -> HA `1.0`, ARC `100 = closed` -> HA `0.0`
 ## License
 
 MIT License
+© 2025 Redstorm
