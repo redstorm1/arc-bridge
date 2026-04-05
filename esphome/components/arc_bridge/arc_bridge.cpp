@@ -1,75 +1,171 @@
 #include "arc_bridge.h"
+
+#include "battery.h"
 #include "arc_cover.h"
+#include "protocol.h"
+#include "tx_queue.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
-#include <Arduino.h>
-#include <cctype>
-#include <cstdio>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
 
 namespace esphome {
 namespace arc_bridge {
 
 static const char *const TAG = "arc_bridge";
 
+namespace {
+
+template<typename T>
+T *find_mapped_(std::unordered_map<std::string, T *> &map, const std::string &id) {
+  auto it = map.find(id);
+  return (it != map.end()) ? it->second : nullptr;
+}
+
+static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
+  dbm = (raw / 2.0f) - 130.0f;
+
+  if (dbm < -120) {
+    dbm = -120;
+  }
+  if (dbm > -20) {
+    dbm = -20;
+  }
+
+  pct = dbm + 120.0f;
+  if (pct < 0) {
+    pct = 0;
+  }
+  if (pct > 100) {
+    pct = 100;
+  }
+}
+
+static std::string format_version_text_(const ParsedFrame &parsed) {
+  if (!static_cast<bool>(parsed.motor_type_code) || !static_cast<bool>(parsed.version_code)) {
+    return "";
+  }
+
+  std::string type_name;
+  switch (*parsed.motor_type_code) {
+    case 'A':
+      type_name = "AC";
+      break;
+    case 'C':
+      type_name = "Curtain";
+      break;
+    case 'D':
+      type_name = "DC";
+      break;
+    case 'S':
+      type_name = "Socket";
+      break;
+    case 'L':
+      type_name = "Lighting";
+      break;
+    default:
+      type_name = std::string("Type ") + *parsed.motor_type_code;
+      break;
+  }
+
+  if (static_cast<bool>(parsed.version_major) && static_cast<bool>(parsed.version_minor)) {
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%s v%d.%d", type_name.c_str(),
+             *parsed.version_major, *parsed.version_minor);
+    return buffer;
+  }
+
+  return type_name + " " + *parsed.version_code;
+}
+
+static std::string format_limits_text_(const std::string &code) {
+  if (code == "00") {
+    return "Unset";
+  }
+  if (code == "01") {
+    return "Upper/Lower Set";
+  }
+  if (code == "03") {
+    return "Upper/Lower/Preferred Set";
+  }
+  return "Code " + code;
+}
+
+}  // namespace
+
 // =========================================================
 //  TX QUEUE IMPLEMENTATION
 // =========================================================
 
-void ARCBridgeComponent::queue_tx(const std::string &frame) {
-  tx_queue_.push_back(frame);
-  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u)", frame.c_str(),
-           (unsigned)tx_queue_.size());
+void ARCBridgeComponent::queue_tx(const std::string &frame,
+                                  TxPacingClass pacing_class,
+                                  bool is_poll,
+                                  const std::string &blind_id,
+                                  DeliveryExpectation delivery_expectation,
+                                  bool allow_retry,
+                                  uint32_t tracking_id,
+                                  const std::string &expected_ack_token,
+                                  const std::string &expected_ack_prefix) {
+  this->tx_queue_.push_back({frame, pacing_class, is_poll, blind_id, delivery_expectation,
+                             allow_retry, tracking_id, expected_ack_token, expected_ack_prefix});
+  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%u ms)", frame.c_str(),
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
-void ARCBridgeComponent::queue_tx_front(const std::string &frame) {
-  tx_queue_.push_front(frame);
-  ESP_LOGD(TAG, "Enqueued TX (PRIORITY): %s (queue size=%u)", frame.c_str(),
-           (unsigned)tx_queue_.size());
-}
-
-static bool is_poll_frame_(const std::string &f) {
-  // Poll frames we generate:
-  //   !IDr?;
-  //   !IDpVc?;
-  return (f.find("r?;")   != std::string::npos) ||
-         (f.find("pVc?;") != std::string::npos);
+void ARCBridgeComponent::queue_tx_front(const std::string &frame,
+                                        TxPacingClass pacing_class,
+                                        bool is_poll,
+                                        const std::string &blind_id,
+                                        DeliveryExpectation delivery_expectation,
+                                        bool allow_retry,
+                                        uint32_t tracking_id,
+                                        const std::string &expected_ack_token,
+                                        const std::string &expected_ack_prefix) {
+  this->tx_queue_.push_front({frame, pacing_class, is_poll, blind_id, delivery_expectation,
+                              allow_retry, tracking_id, expected_ack_token, expected_ack_prefix});
+  ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%u ms)", frame.c_str(),
+           (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
 void ARCBridgeComponent::drop_pending_polls_() {
-  if (tx_queue_.empty())
+  if (this->tx_queue_.empty()) {
     return;
+  }
 
-  size_t before = tx_queue_.size();
+  // Poll/query frames are tracked explicitly on the queue item
+  const size_t before = this->tx_queue_.size();
+  drop_pending_poll_items(this->tx_queue_);
 
-  tx_queue_.erase(
-      std::remove_if(tx_queue_.begin(), tx_queue_.end(),
-                     [](const std::string &f) { return is_poll_frame_(f); }),
-      tx_queue_.end());
-
-  size_t dropped = before - tx_queue_.size();
+  const size_t dropped = before - this->tx_queue_.size();
   if (dropped > 0) {
-    ESP_LOGD(TAG, "Dropped %u queued poll frames", (unsigned)dropped);
+    ESP_LOGD(TAG, "Dropped %u queued poll frames", (unsigned) dropped);
   }
 }
 
 void ARCBridgeComponent::process_tx_queue_() {
-  uint32_t now = millis();
+  const uint32_t now = millis();
 
-  if (tx_queue_.empty())
+  if (this->tx_queue_.empty()) {
     return;
+  }
 
-  // enforce safe ARC timing
-  if (now - last_tx_millis_ < TX_GAP_MS)
+  const TxQueueItem item = this->tx_queue_.front();
+  // Enforce safe ARC timing using the configured per-bridge motion gap
+  const uint32_t required_gap = tx_gap_ms_for(item.pacing_class, this->motion_tx_gap_ms_);
+  if (now - this->last_tx_millis_ < required_gap) {
     return;
+  }
 
-  std::string frame = tx_queue_.front();
-  tx_queue_.pop_front();
+  this->tx_queue_.pop_front();
 
-  this->write_str(frame.c_str());
-  last_tx_millis_ = now;
+  this->write_str(item.frame.c_str());
+  this->last_tx_millis_ = now;
+  this->arm_pending_delivery_(item, now);
 
-  ESP_LOGD(TAG, "TX -> %s (queued send)", frame.c_str());
+  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", item.frame.c_str(), required_gap);
 }
 
 // =========================================================
@@ -77,27 +173,30 @@ void ARCBridgeComponent::process_tx_queue_() {
 // =========================================================
 
 void ARCBridgeComponent::setup() {
-  while (this->available())
+  while (this->available()) {
     this->read();  // purge stale UART
+  }
 
-  uint32_t now = millis();
+  const uint32_t now = millis();
 
   this->boot_millis_ = now;
   this->startup_guard_cleared_ = false;
-
-  // Initialise timing so watchdog / quiet logic don't misfire at boot
-  this->last_tx_millis_     = now;
-  this->last_rx_millis_     = now;
+  // Initialize timing so watchdog and quiet-time logic do not misfire at boot
+  this->last_tx_millis_ = now;
+  this->last_rx_millis_ = now;
   this->last_motion_millis_ = now;
-  this->last_query_millis_  = now;
+  this->last_query_millis_ = now;
+  this->query_index_ = 0;
 
   ESP_LOGI(TAG,
-           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms)",
+           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms, tx gaps default=%u ms motion=%u ms, command retries=%u timeout=%u ms)",
            STARTUP_GUARD_MS,
-           (this->auto_poll_enabled_ && this->query_interval_ms_ > 0)
-               ? "enabled"
-               : "disabled",
-           this->query_interval_ms_);
+           (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
+           this->query_interval_ms_,
+           tx_gap_ms_for(TxPacingClass::STANDARD, this->motion_tx_gap_ms_),
+           tx_gap_ms_for(TxPacingClass::MOTION, this->motion_tx_gap_ms_),
+           this->command_retry_count_,
+           this->command_retry_timeout_ms_);
 }
 
 // =========================================================
@@ -105,11 +204,10 @@ void ARCBridgeComponent::setup() {
 // =========================================================
 
 void ARCBridgeComponent::loop() {
-  uint32_t now = millis();
+  const uint32_t now = millis();
 
   // Startup guard
-  if (!this->startup_guard_cleared_ &&
-      now - this->boot_millis_ >= STARTUP_GUARD_MS) {
+  if (!this->startup_guard_cleared_ && now - this->boot_millis_ >= STARTUP_GUARD_MS) {
     this->startup_guard_cleared_ = true;
     ESP_LOGI(TAG, "Startup guard cleared");
   }
@@ -118,191 +216,348 @@ void ARCBridgeComponent::loop() {
   // UART RX
   // -----------------------------
   while (this->available()) {
-    int c = this->read();
-    if (c < 0)
+    const int c = this->read();
+    if (c < 0) {
       break;
+    }
 
-    rx_buffer_.push_back(static_cast<char>(c));
-    last_rx_millis_ = now;
+    this->rx_buffer_.push_back(static_cast<char>(c));
+    this->last_rx_millis_ = now;
 
-    if (rx_buffer_.size() > 256) {
-      rx_buffer_.clear();
+    if (this->rx_buffer_.size() > 256) {
+      this->rx_buffer_.clear();
       ESP_LOGW(TAG, "RX buffer overflow cleared");
       continue;
     }
 
-    auto start_it = std::find(rx_buffer_.begin(), rx_buffer_.end(), '!');
-    auto end_it   = std::find(rx_buffer_.begin(), rx_buffer_.end(), ';');
+    auto start_it = std::find(this->rx_buffer_.begin(), this->rx_buffer_.end(), '!');
+    auto end_it = std::find(this->rx_buffer_.begin(), this->rx_buffer_.end(), ';');
 
-    if (start_it != rx_buffer_.end() &&
-        end_it   != rx_buffer_.end() &&
-        end_it > start_it) {
-
-      std::string frame(start_it, end_it + 1);
-      rx_buffer_.erase(rx_buffer_.begin(), end_it + 1);
+    if (start_it != this->rx_buffer_.end() && end_it != this->rx_buffer_.end() && end_it > start_it) {
+      const std::string frame(start_it, end_it + 1);
+      this->rx_buffer_.erase(this->rx_buffer_.begin(), end_it + 1);
       this->handle_frame(frame);
     }
   }
 
+  const bool quiet_due_to_motion = (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
+  const bool auto_poll_active = this->startup_guard_cleared_ && this->auto_poll_enabled_ &&
+                                this->query_interval_ms_ > 0 && !this->covers_.empty() &&
+                                !quiet_due_to_motion && !this->pairing_session_.active;
+
   // -----------------------------
   // AUTO POLL
   // -----------------------------
-  bool quiet_due_to_motion =
-      (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
-
-  bool auto_poll_active =
-      this->startup_guard_cleared_ &&
-      this->auto_poll_enabled_ &&
-      this->query_interval_ms_ > 0 &&
-      !covers_.empty() &&
-      !quiet_due_to_motion;
-
-  if (auto_poll_active &&
-      now - this->last_query_millis_ >= this->query_interval_ms_) {
+  if (auto_poll_active && now - this->last_query_millis_ >= this->query_interval_ms_) {
     this->last_query_millis_ = now;
 
-    // OLD: global query (unreliable)
-    // this->send_query("000");
-
-    // NEW: per-blind position queries !IDr?;
-    ESP_LOGD(TAG, "Auto-poll: querying positions for all %u covers", (unsigned) covers_.size());
-    for (auto *cv : covers_) {
-      if (!cv)
-        continue;
-      const std::string &bid = cv->get_blind_id();
-      if (bid.size() == 3) {
-        this->send_query(bid);
-        this->send_voltage_query(bid);  // NEW
+    size_t attempts = this->covers_.size();
+    while (attempts-- > 0) {
+      if (this->query_index_ >= this->covers_.size()) {
+        this->query_index_ = 0;
       }
+
+      ARCCover *cover = this->covers_[this->query_index_++];
+      if (cover == nullptr) {
+        continue;
+      }
+
+      const std::string &blind_id = cover->get_blind_id();
+      if (blind_id.size() != 3) {
+        continue;
+      }
+
+      // Query one blind at a time so large installs do not burst the UART bus
+      ESP_LOGD(TAG, "Auto-poll: querying blind %s", blind_id.c_str());
+      this->enqueue_queries_for_id_(blind_id, false);
+      break;
     }
   }
 
   // -----------------------------
   // TX QUEUE PROCESSING
   // -----------------------------
-  process_tx_queue_();
-  
+  this->process_tx_queue_();
+  this->process_pending_deliveries_();
+  this->process_pairing_timeout_();
+
   // -----------------------------
   // TX WATCHDOG (movement-aware)
   // -----------------------------
-  if (!this->tx_queue_.empty()) {
-
-    // Skip watchdog entirely until first TX occurs
-    if (this->last_tx_millis_ == this->boot_millis_) {
-      // First TX hasn't happened → watchdog off
-      return;
-    }
-
-    // Use signed deltas so millis() rollover doesn't produce huge values.
-    int32_t dt_rx = (int32_t) (now - this->last_rx_millis_);
-    int32_t dt_tx = (int32_t) (now - this->last_tx_millis_);
-
-    if (dt_rx < 0) dt_rx = 0;
-    if (dt_tx < 0) dt_tx = 0;
-
-    bool quiet_due_to_motion_wd =
-        (now - this->last_motion_millis_) < MOVEMENT_QUIET_MS;
-
-    if ((uint32_t) dt_rx >= TX_WATCHDOG_MS &&
-        (uint32_t) dt_tx >= TX_WATCHDOG_MS) {
-
-      ESP_LOGW(TAG,
-               "TX Watchdog: No RX for %u ms (last TX %u ms ago) "
-               "while TX pending -> clearing queue",
-               (uint32_t) dt_rx, (uint32_t) dt_tx);
-
-      this->tx_queue_.clear();
-
-      if (!quiet_due_to_motion_wd) {
-        ESP_LOGW(TAG, "Watchdog: sending per-blind wake-up queries");
-        for (auto *cv : covers_) {
-          if (!cv) continue;
-          const std::string &bid = cv->get_blind_id();
-          if (bid.size() == 3) {
-            this->send_query(bid);
-          }
-        }
-      } else {
-        ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
-      }
-    }
+  if (this->tx_queue_.empty()) {
+    return;
   }
 
+  // Skip watchdog entirely until the first TX occurs
+  if (this->last_tx_millis_ == this->boot_millis_) {
+    return;
+  }
 
+  // Use signed deltas so millis() rollover does not produce huge values
+  int32_t dt_rx = static_cast<int32_t>(now - this->last_rx_millis_);
+  int32_t dt_tx = static_cast<int32_t>(now - this->last_tx_millis_);
+  if (dt_rx < 0) {
+    dt_rx = 0;
+  }
+  if (dt_tx < 0) {
+    dt_tx = 0;
+  }
+
+  if (static_cast<uint32_t>(dt_rx) >= TX_WATCHDOG_MS &&
+      static_cast<uint32_t>(dt_tx) >= TX_WATCHDOG_MS) {
+    ESP_LOGW(TAG,
+             "TX watchdog: no RX for %u ms (last TX %u ms ago) while TX pending -> clearing queue",
+             (uint32_t) dt_rx, (uint32_t) dt_tx);
+
+    this->tx_queue_.clear();
+
+    if (!quiet_due_to_motion && !this->covers_.empty()) {
+      if (this->query_index_ >= this->covers_.size()) {
+        this->query_index_ = 0;
+      }
+
+      ARCCover *cover = this->covers_[this->query_index_];
+      if (cover != nullptr) {
+        const std::string &blind_id = cover->get_blind_id();
+        if (blind_id.size() == 3) {
+          ESP_LOGW(TAG, "Watchdog: sending wake-up query to %s", blind_id.c_str());
+          this->enqueue_queries_for_id_(blind_id, false);
+        }
+      }
+    } else if (quiet_due_to_motion) {
+      ESP_LOGW(TAG, "Watchdog: wake-up poll suppressed due to movement quiet-time");
+    }
+  }
 }
 
 // =========================================================
 //  COVER REGISTRATION
 // =========================================================
 
-void ARCBridgeComponent::register_cover(const std::string &id,
-                                        ARCCover *cover) {
-  covers_.push_back(cover);
+void ARCBridgeComponent::register_cover(const std::string &id, ARCCover *cover) {
+  this->covers_.push_back(cover);
+
+  if (this->cover_map_.count(id) != 0) {
+    ESP_LOGW(TAG, "Duplicate cover registration for id='%s' will replace direct lookup", id.c_str());
+  }
+  this->cover_map_[id] = cover;
+
   ESP_LOGD(TAG, "Registered cover id='%s'", id.c_str());
 }
 
 // =========================================================
-//  COMMAND SENDERS  (all use queue_tx())
+//  DELIVERY TRACKING
+// =========================================================
+
+uint32_t ARCBridgeComponent::allocate_tracking_id_() {
+  const uint32_t tracking_id = this->next_tracking_id_++;
+  if (this->next_tracking_id_ == 0) {
+    this->next_tracking_id_ = 1;
+  }
+  return tracking_id;
+}
+
+void ARCBridgeComponent::arm_pending_delivery_(const TxQueueItem &item, uint32_t now) {
+  if (item.delivery_expectation == DeliveryExpectation::NONE || item.blind_id.empty()) {
+    return;
+  }
+
+  auto &pending = this->pending_command_deliveries_[item.blind_id];
+  const bool same_tracking = pending.item.tracking_id == item.tracking_id;
+  if (!same_tracking) {
+    pending = {};
+    pending.item = item;
+  } else {
+    pending.item = item;
+  }
+
+  pending.last_activity_ms = now;
+  pending.verification_sent = false;
+
+  ESP_LOGD(TAG, "[%s] Awaiting blind acknowledgement for %s (tracking=%u, retries used=%u)",
+           item.blind_id.c_str(), item.frame.c_str(), item.tracking_id, pending.retries_used);
+}
+
+void ARCBridgeComponent::acknowledge_pending_delivery_(const ParsedFrame &parsed) {
+  auto it = this->pending_command_deliveries_.find(parsed.id);
+  if (it == this->pending_command_deliveries_.end()) {
+    return;
+  }
+
+  if (!frame_confirms_delivery(parsed, it->second.item.blind_id,
+                               it->second.item.delivery_expectation,
+                               it->second.item.expected_ack_token,
+                               it->second.item.expected_ack_prefix)) {
+    return;
+  }
+
+  if (parsed.lost_link || parsed.not_paired) {
+    ESP_LOGW(TAG, "[%s] Delivery check failed with explicit blind status for %s", parsed.id.c_str(),
+             it->second.item.frame.c_str());
+  } else {
+    ESP_LOGD(TAG, "[%s] Delivery confirmed for %s", parsed.id.c_str(),
+             it->second.item.frame.c_str());
+  }
+
+  this->pending_command_deliveries_.erase(it);
+}
+
+void ARCBridgeComponent::send_verification_query_(const std::string &id) {
+  const std::string frame = "!" + id + "r?;";
+  this->queue_tx_front(frame, TxPacingClass::STANDARD, false);
+  ESP_LOGW(TAG, "[%s] Queued verification query -> %s", id.c_str(), frame.c_str());
+}
+
+void ARCBridgeComponent::process_pending_deliveries_() {
+  if (this->pending_command_deliveries_.empty() || this->command_retry_timeout_ms_ == 0) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  for (auto it = this->pending_command_deliveries_.begin();
+       it != this->pending_command_deliveries_.end();) {
+    auto &pending = it->second;
+    const PendingDeliveryPolicy policy{
+        pending.retries_used,
+        this->command_retry_count_,
+        pending.last_activity_ms,
+        this->command_retry_timeout_ms_,
+        pending.verification_sent,
+        pending.item.allow_retry,
+    };
+
+    switch (next_delivery_timeout_action(policy, now)) {
+      case DeliveryTimeoutAction::SEND_VERIFY_QUERY:
+        ESP_LOGW(TAG, "[%s] No qualifying blind reply for %s after %u ms -> verifying with r?",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str(),
+                 this->command_retry_timeout_ms_);
+        this->send_verification_query_(pending.item.blind_id);
+        pending.verification_sent = true;
+        pending.last_activity_ms = now;
+        ++it;
+        break;
+
+      case DeliveryTimeoutAction::RETRY_COMMAND:
+        ESP_LOGW(TAG, "[%s] No blind acknowledgement for %s -> retry %u/%u",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str(),
+                 static_cast<unsigned>(pending.retries_used + 1),
+                 static_cast<unsigned>(this->command_retry_count_));
+        this->drop_pending_polls_();
+        this->queue_tx_front(pending.item.frame, pending.item.pacing_class, false,
+                             pending.item.blind_id, pending.item.delivery_expectation,
+                             pending.item.allow_retry, pending.item.tracking_id,
+                             pending.item.expected_ack_token,
+                             pending.item.expected_ack_prefix);
+        pending.retries_used++;
+        pending.verification_sent = false;
+        pending.last_activity_ms = now;
+        ++it;
+        break;
+
+      case DeliveryTimeoutAction::GIVE_UP:
+        ESP_LOGW(TAG, "[%s] No blind acknowledgement for %s after verification -> giving up",
+                 pending.item.blind_id.c_str(), pending.item.frame.c_str());
+        it = this->pending_command_deliveries_.erase(it);
+        break;
+
+      case DeliveryTimeoutAction::NONE:
+      default:
+        ++it;
+        break;
+    }
+  }
+}
+
+// =========================================================
+//  COMMAND SENDERS (all use queue_tx())
 // =========================================================
 
 void ARCBridgeComponent::send_simple_(const std::string &id, char command,
-                                      const std::string &payload,
-                                      bool priority) {
-  std::string frame = "!" + id + command + payload + ";";
+                                      const std::string &payload, bool priority,
+                                      TxPacingClass pacing_class, bool is_poll,
+                                      DeliveryExpectation delivery_expectation,
+                                      bool allow_retry,
+                                      const std::string &expected_ack_token,
+                                      const std::string &expected_ack_prefix) {
+  const std::string frame = "!" + id + command + payload + ";";
+  const uint32_t tracking_id =
+      delivery_expectation == DeliveryExpectation::NONE ? 0 : this->allocate_tracking_id_();
 
   if (priority) {
-    queue_tx_front(frame);
+    this->queue_tx_front(frame, pacing_class, is_poll, id, delivery_expectation, allow_retry,
+                         tracking_id, expected_ack_token, expected_ack_prefix);
     ESP_LOGD(TAG, "TX queued (priority) -> %s", frame.c_str());
   } else {
-    queue_tx(frame);
+    this->queue_tx(frame, pacing_class, is_poll, id, delivery_expectation, allow_retry,
+                   tracking_id, expected_ack_token, expected_ack_prefix);
     ESP_LOGD(TAG, "TX queued -> %s", frame.c_str());
   }
 }
 
 void ARCBridgeComponent::send_open(const std::string &id) {
-  last_motion_millis_ = millis();
-  drop_pending_polls_();
-  send_simple_(id, 'o', "", true);
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 'o', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, true, "o");
 }
 
 void ARCBridgeComponent::send_close(const std::string &id) {
-  last_motion_millis_ = millis();
-  drop_pending_polls_();
-  send_simple_(id, 'c', "", true);
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 'c', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, true, "c");
 }
 
 void ARCBridgeComponent::send_stop(const std::string &id) {
-  last_motion_millis_ = millis();
-  drop_pending_polls_();
-  send_simple_(id, 's', "", true);
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 's', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, true, "s");
 }
 
 void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
-  if (percent > 100)
+  if (percent > 100) {
     percent = 100;
+  }
 
-  last_motion_millis_ = millis();
-  drop_pending_polls_();
-  char buf[4];
-  snprintf(buf, sizeof(buf), "%03u", percent);
-  send_simple_(id, 'm', buf, true);
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+
+  char buffer[4];
+  snprintf(buffer, sizeof(buffer), "%03u", percent);
+  const std::string move_token = std::string("m") + buffer;
+  this->send_simple_(id, 'm', buffer, true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, true, move_token, "m");
 }
 
 void ARCBridgeComponent::send_query(const std::string &id) {
-  send_simple_(id, 'r', "?", false);
+  this->send_simple_(id, 'r', "?", false, TxPacingClass::STANDARD, true);
 }
 
-// NEW: send !XXXpVc?;
-void ARCBridgeComponent::send_voltage_query(const std::string &id) {
-  // This builds: "!" + id + 'p' + "Vc?" + ";"
-  send_simple_(id, 'p', "Vc?", false);
+void ARCBridgeComponent::send_query_all() {
+  this->drop_pending_polls_();
+
+  ESP_LOGI(TAG, "Queueing a manual query pass for %u covers", (unsigned) this->covers_.size());
+  for (auto *cover : this->covers_) {
+    if (cover == nullptr) {
+      continue;
+    }
+    const std::string &blind_id = cover->get_blind_id();
+    if (blind_id.size() != 3) {
+      continue;
+    }
+    this->enqueue_queries_for_id_(blind_id, true);
+  }
 }
 
 void ARCBridgeComponent::send_pair_command() {
-  std::string frame = "!000&;";
-  drop_pending_polls_();
-  queue_tx_front(frame);
-  ESP_LOGI(TAG, "TX queued (priority) -> %s (pairing)", frame.c_str());
+  this->drop_pending_polls_();
+  start_pairing_session(this->pairing_session_, millis());
+  this->publish_pairing_status_("Pairing");
+
+  const std::string frame = build_pair_command_frame();
+  this->queue_tx_front(frame, TxPacingClass::STANDARD, false);
+  ESP_LOGI(TAG, "TX queued (priority) -> %s (pairing: random assignment)", frame.c_str());
 }
 
 void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
@@ -312,12 +567,77 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
   }
 
   std::string tx = cmd;
-  if (tx.front() != '!') tx.insert(0, "!");
-  if (tx.back()  != ';') tx.push_back(';');
+  if (tx.front() != '!') {
+    tx.insert(0, "!");
+  }
+  if (tx.back() != ';') {
+    tx.push_back(';');
+  }
 
-  drop_pending_polls_();
-  queue_tx_front(tx);
+  this->drop_pending_polls_();
+  this->queue_tx_front(tx, TxPacingClass::STANDARD, false);
   ESP_LOGI(TAG, "TX queued (raw, priority) -> %s", tx.c_str());
+}
+
+void ARCBridgeComponent::send_favorite(const std::string &id) {
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 'f', "", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, false, "f");
+}
+
+void ARCBridgeComponent::send_jog_open(const std::string &id) {
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 'o', "A", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, false, "oA");
+}
+
+void ARCBridgeComponent::send_jog_close(const std::string &id) {
+  this->last_motion_millis_ = millis();
+  this->drop_pending_polls_();
+  this->send_simple_(id, 'c', "A", true, TxPacingClass::MOTION, false,
+                     DeliveryExpectation::BLIND_REPLY, false, "cA");
+}
+
+void ARCBridgeComponent::send_voltage_query(const std::string &id) {
+  this->send_simple_(id, 'p', "Vc?", false, TxPacingClass::STANDARD, true);
+}
+
+void ARCBridgeComponent::send_version_query(const std::string &id) {
+  this->send_simple_(id, 'v', "?", false, TxPacingClass::STANDARD, true);
+}
+
+void ARCBridgeComponent::send_speed_query(const std::string &id) {
+  this->send_simple_(id, 'p', "Sc?", false, TxPacingClass::STANDARD, true);
+}
+
+void ARCBridgeComponent::send_limits_query(const std::string &id) {
+  this->send_simple_(id, 'p', "P?", false, TxPacingClass::STANDARD, true);
+}
+
+void ARCBridgeComponent::enqueue_queries_for_id_(const std::string &id, bool force_static) {
+  // Always queue the position query first so state recovers quickly after silence.
+  this->send_query(id);
+
+  if (find_mapped_(this->voltage_map_, id) != nullptr ||
+      find_mapped_(this->battery_level_map_, id) != nullptr) {
+    this->send_voltage_query(id);
+  }
+
+  if (find_mapped_(this->speed_map_, id) != nullptr) {
+    this->send_speed_query(id);
+  }
+
+  if (auto *version_sensor = find_mapped_(this->version_map_, id);
+      version_sensor != nullptr && (force_static || !version_sensor->has_state())) {
+    this->send_version_query(id);
+  }
+
+  if (auto *limits_sensor = find_mapped_(this->limits_map_, id);
+      limits_sensor != nullptr && (force_static || !limits_sensor->has_state())) {
+    this->send_limits_query(id);
+  }
 }
 
 // =========================================================
@@ -326,155 +646,272 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
 
 void ARCBridgeComponent::handle_frame(const std::string &frame) {
   ESP_LOGD(TAG, "RX raw -> %s", frame.c_str());
-  if (frame.size() < 5)
+  if (frame.size() < 5) {
     return;
-  parse_frame(frame);
-}
-
-static void decode_rssi(uint8_t raw, float &dbm, float &pct) {
-  dbm = (raw / 2.0f) - 130.0f;
-
-  if (dbm < -120) dbm = -120;
-  if (dbm > -20)  dbm = -20;
-
-  pct = (dbm + 120.0f);
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
+  }
+  this->parse_frame(frame);
 }
 
 void ARCBridgeComponent::parse_frame(const std::string &frame) {
-  if (frame.size() < 5)
+  const ParsedFrame parsed = parse_arc_frame(frame);
+  if (!parsed.valid) {
     return;
+  }
 
-  std::string body = frame.substr(1, frame.size() - 2);
-  std::string id   = body.substr(0, 3);
-  std::string rest = (body.size() > 3) ? body.substr(3) : "";
+  this->acknowledge_pending_delivery_(parsed);
 
-  int pos = -1;
+  const PairingOutcome pairing_outcome = handle_pairing_frame(this->pairing_session_, parsed);
+  if (pairing_outcome.type != PairingOutcomeType::NONE) {
+    this->handle_pairing_outcome_(pairing_outcome);
+    return;
+  }
+
+  if (static_cast<bool>(parsed.error_code)) {
+    const std::string error_text = describe_error_code(*parsed.error_code);
+    ESP_LOGW(TAG, "[%s] Error %s -> %s", parsed.id.c_str(), parsed.error_code->c_str(),
+             error_text.c_str());
+    return;
+  }
+
+  const std::string &id = parsed.id;
+  auto *cover = find_mapped_(this->cover_map_, id);
+  auto *lq_sensor = find_mapped_(this->lq_map_, id);
+  auto *status_sensor = find_mapped_(this->status_map_, id);
+  auto *version_sensor = find_mapped_(this->version_map_, id);
+  auto *speed_sensor = find_mapped_(this->speed_map_, id);
+  auto *limits_sensor = find_mapped_(this->limits_map_, id);
+
   float dbm = NAN;
   float pct = NAN;
+  if (static_cast<bool>(parsed.rssi_raw)) {
+    decode_rssi(static_cast<uint8_t>(*parsed.rssi_raw), dbm, pct);
+    ESP_LOGI(TAG, "[%s] R=%02X -> %.1f dBm (%.1f%%)", id.c_str(),
+             *parsed.rssi_raw, dbm, pct);
+  }
 
-  bool enp = (rest.find("Enp") != std::string::npos);
-  bool enl = (rest.find("Enl") != std::string::npos);
+  // Handle pVc replies before availability/status updates.
+  if (static_cast<bool>(parsed.voltage_centivolts)) {
+    this->handle_pvc_value_(id, std::to_string(*parsed.voltage_centivolts));
+  }
 
-  // NEW: handle pVc replies: look for "pVc" followed by digits
-  {
-    size_t pvc_pos = rest.find("pVc");
-    if (pvc_pos != std::string::npos) {
-      size_t vstart = pvc_pos + 3;  // right after "pVc"
-      size_t vend   = vstart;
-      while (vend < rest.size() &&
-             std::isdigit(static_cast<unsigned char>(rest[vend]))) {
-        vend++;
-      }
-      if (vend > vstart) {
-        std::string digits = rest.substr(vstart, vend - vstart);
-        this->handle_pvc_value_(id, digits);
-      }
+  if (static_cast<bool>(parsed.speed_rpm) && speed_sensor != nullptr) {
+    speed_sensor->publish_state(static_cast<float>(*parsed.speed_rpm));
+    ESP_LOGD(TAG, "[%s] speed=%d rpm", id.c_str(), *parsed.speed_rpm);
+  }
+
+  if (static_cast<bool>(parsed.version_code) && version_sensor != nullptr) {
+    const std::string version_text = format_version_text_(parsed);
+    version_sensor->publish_state(version_text.empty() ? *parsed.version_code : version_text);
+    ESP_LOGD(TAG, "[%s] version=%s", id.c_str(),
+             version_text.empty() ? parsed.version_code->c_str() : version_text.c_str());
+  }
+
+  if (static_cast<bool>(parsed.limits_code) && limits_sensor != nullptr) {
+    const std::string limits_text = format_limits_text_(*parsed.limits_code);
+    limits_sensor->publish_state(limits_text);
+    ESP_LOGD(TAG, "[%s] limits=%s", id.c_str(), limits_text.c_str());
+  }
+
+  if (parsed.lost_link) {
+    if (status_sensor != nullptr) {
+      status_sensor->publish_state("Offline");
     }
-  }
-
-  size_t rpos = rest.find('r');
-  if (rpos != std::string::npos)
-    pos = std::atoi(rest.c_str() + rpos + 1);
-
-  size_t Rpos = rest.find('R');
-  if (Rpos != std::string::npos && Rpos + 2 <= rest.size()) {
-    std::string hex_str = rest.substr(Rpos + 1, 2);
-    int raw_val = std::strtol(hex_str.c_str(), nullptr, 16);
-    decode_rssi(raw_val, dbm, pct);
-    ESP_LOGI(TAG, "[%s] R=%s -> %.1f dBm (%.1f%%)",
-             id.c_str(), hex_str.c_str(), dbm, pct);
-  }
-
-  auto it_lq = lq_map_.find(id);
-  auto it_status = status_map_.find(id);
-  sensor::Sensor *lq_sensor = (it_lq != lq_map_.end()) ? it_lq->second : nullptr;
-  text_sensor::TextSensor *status_sensor =
-      (it_status != status_map_.end()) ? it_status->second : nullptr;
-
-  if (enl) {
-    if (status_sensor) status_sensor->publish_state("unavailable");
-    if (lq_sensor)     lq_sensor->publish_state(NAN);
+    if (lq_sensor != nullptr) {
+      lq_sensor->publish_state(NAN);
+    }
+    if (cover != nullptr) {
+      cover->set_available(false);
+    }
     ESP_LOGW(TAG, "[%s] Lost link", id.c_str());
-  }
-  else if (enp) {
-    if (status_sensor) status_sensor->publish_state("unavailable");
-    if (lq_sensor)     lq_sensor->publish_state(NAN);
-    ESP_LOGW(TAG, "[%s] Not paired", id.c_str());
-  }
-  else if (!std::isnan(dbm)) {
-    if (lq_sensor)     lq_sensor->publish_state(dbm);
-    if (status_sensor) status_sensor->publish_state("Online");
+    return;
   }
 
-  for (auto *cv : covers_) {
-    if (cv && cv->get_blind_id() == id) {
-      if (enl || enp) {
-        cv->publish_raw_position(-1);
-        ESP_LOGW(TAG, "[%s] Marked unavailable", id.c_str());
-      } else {
-        if (pos >= 0)         cv->publish_raw_position(pos);
-        if (!std::isnan(dbm)) cv->publish_link_quality(dbm);
-      }
-      break;
+  if (parsed.not_paired) {
+    if (status_sensor != nullptr) {
+      status_sensor->publish_state("Not Paired");
+    }
+    if (lq_sensor != nullptr) {
+      lq_sensor->publish_state(NAN);
+    }
+    if (cover != nullptr) {
+      cover->set_available(false);
+    }
+    ESP_LOGW(TAG, "[%s] Not paired", id.c_str());
+    return;
+  }
+
+  if (!std::isnan(dbm) && lq_sensor != nullptr) {
+    lq_sensor->publish_state(dbm);
+  }
+
+  if (status_sensor != nullptr) {
+    if (parsed.no_position) {
+      status_sensor->publish_state("No Position");
+    } else {
+      status_sensor->publish_state("Online");
     }
   }
 
-  ESP_LOGD(TAG, "Parsed id=%s r=%d RSSI=%.1f", id.c_str(), pos, dbm);
+  if (cover != nullptr && !cover->has_state()) {
+    cover->set_available(true);
+  }
+
+  if (static_cast<bool>(parsed.position_percent) && cover != nullptr) {
+    cover->publish_raw_position(*parsed.position_percent);
+    if (parsed.position_in_motion) {
+      ESP_LOGD(TAG, "[%s] In-progress position=%d", id.c_str(), *parsed.position_percent);
+    }
+  }
+
+  if (parsed.no_position) {
+    ESP_LOGW(TAG, "[%s] No position/limits feedback", id.c_str());
+  }
+
+  ESP_LOGD(TAG, "Parsed id=%s pos=%d moving=%s RSSI=%.1f",
+           id.c_str(),
+           parsed.position_percent.value_or(-1),
+           parsed.position_in_motion ? "true" : "false",
+           dbm);
+}
+
+void ARCBridgeComponent::publish_pairing_status_(const std::string &status) {
+  if (this->pairing_status_sensor_ != nullptr) {
+    this->pairing_status_sensor_->publish_state(status);
+  }
+}
+
+void ARCBridgeComponent::publish_last_paired_id_(const std::string &id) {
+  if (this->last_paired_id_sensor_ != nullptr) {
+    this->last_paired_id_sensor_->publish_state(id);
+  }
+}
+
+void ARCBridgeComponent::handle_pairing_outcome_(const PairingOutcome &outcome) {
+  switch (outcome.type) {
+    case PairingOutcomeType::SUCCESS:
+      this->publish_pairing_status_(outcome.message);
+      this->publish_last_paired_id_(outcome.paired_id);
+      ESP_LOGI(TAG, "[%s] Pairing successful", outcome.paired_id.c_str());
+      break;
+
+    case PairingOutcomeType::ERROR:
+      this->publish_pairing_status_(outcome.message);
+      ESP_LOGW(TAG, "%s", outcome.message.c_str());
+      break;
+
+    case PairingOutcomeType::TIMEOUT:
+      this->publish_pairing_status_(outcome.message);
+      ESP_LOGW(TAG, "Pairing timed out after %u ms", PAIRING_TIMEOUT_MS);
+      break;
+
+    case PairingOutcomeType::GENERIC_ACK:
+      ESP_LOGI(TAG, "[%s] Received admin acknowledgement", outcome.paired_id.c_str());
+      break;
+
+    case PairingOutcomeType::NONE:
+    default:
+      break;
+  }
+}
+
+void ARCBridgeComponent::process_pairing_timeout_() {
+  const PairingOutcome outcome =
+      check_pairing_timeout(this->pairing_session_, millis(), PAIRING_TIMEOUT_MS);
+  if (outcome.type != PairingOutcomeType::NONE) {
+    this->handle_pairing_outcome_(outcome);
+  }
 }
 
 void ARCBridgeComponent::handle_pvc_value_(const std::string &id, const std::string &digits) {
   // Parse integer without exceptions
   char *endptr = nullptr;
-  long raw_val = std::strtol(digits.c_str(), &endptr, 10);
-  if (endptr == digits.c_str() || raw_val < 0) {
+  const long raw_value = std::strtol(digits.c_str(), &endptr, 10);
+  if (endptr == digits.c_str() || raw_value < 0) {
     ESP_LOGW(TAG, "[%s] Invalid pVc digits='%s'", id.c_str(), digits.c_str());
     return;
   }
 
-  int raw = static_cast<int>(raw_val);
-
-  auto it = voltage_map_.find(id);
-  if (it == voltage_map_.end() || !it->second) {
-    ESP_LOGD(TAG, "[%s] pVc=%d but no mapped voltage sensor", id.c_str(), raw);
+  auto *sensor = find_mapped_(this->voltage_map_, id);
+  auto *battery_sensor = find_mapped_(this->battery_level_map_, id);
+  if (sensor == nullptr && battery_sensor == nullptr) {
+    ESP_LOGD(TAG, "[%s] pVc=%ld but no mapped voltage or battery sensor", id.c_str(), raw_value);
     return;
   }
 
   // 0 → AC motor; publish 0.0V but log as AC
-  if (raw == 0) {
-    it->second->publish_state(0.0f);
-    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V", id.c_str());
+  if (raw_value == 0) {
+    if (sensor != nullptr) {
+      sensor->publish_state(0.0f);
+    }
+    if (battery_sensor != nullptr) {
+      battery_sensor->publish_state(NAN);
+    }
+    ESP_LOGD(TAG, "[%s] pVc=0 -> AC motor, publishing 0.00V and leaving battery unavailable",
+             id.c_str());
     return;
   }
 
   // Non-zero → scaled voltage (raw is in centivolts)
-  float v = raw / 100.0f;
-
-  it->second->publish_state(v);
-
-  ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), v);
+  const float volts = static_cast<float>(raw_value) / 100.0f;
+  if (sensor != nullptr) {
+    sensor->publish_state(volts);
+  }
+  if (battery_sensor != nullptr) {
+    const float battery_pct = battery_percent_from_3s_li_ion(volts);
+    battery_sensor->publish_state(battery_pct);
+    ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV / %.1f%%", id.c_str(), digits.c_str(), volts,
+             battery_pct);
+  } else {
+    ESP_LOGD(TAG, "[%s] pVc raw=%s -> %.2fV", id.c_str(), digits.c_str(), volts);
+  }
 }
-
-
 
 // =========================================================
 //  SENSOR MAPPING
 // =========================================================
 
-void ARCBridgeComponent::map_lq_sensor(const std::string &id,
-                                       sensor::Sensor *s) {
-  lq_map_[id] = s;
+void ARCBridgeComponent::map_lq_sensor(const std::string &id, sensor::Sensor *sensor) {
+  this->lq_map_[id] = sensor;
 }
 
-void ARCBridgeComponent::map_status_sensor(const std::string &id,text_sensor::TextSensor *s) {
-  status_map_[id] = s;
+void ARCBridgeComponent::map_status_sensor(const std::string &id, text_sensor::TextSensor *sensor) {
+  this->status_map_[id] = sensor;
 }
 
-// NEW: voltage text sensor mapping
-void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *s) {
-  voltage_map_[id] = s;
+void ARCBridgeComponent::map_voltage_sensor(const std::string &id, sensor::Sensor *sensor) {
+  this->voltage_map_[id] = sensor;
   ESP_LOGD(TAG, "Mapped voltage sensor for id='%s'", id.c_str());
 }
+
+void ARCBridgeComponent::map_battery_level_sensor(const std::string &id, sensor::Sensor *sensor) {
+  this->battery_level_map_[id] = sensor;
+  ESP_LOGD(TAG, "Mapped battery level sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::map_version_sensor(const std::string &id, text_sensor::TextSensor *sensor) {
+  this->version_map_[id] = sensor;
+  ESP_LOGD(TAG, "Mapped version sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::map_speed_sensor(const std::string &id, sensor::Sensor *sensor) {
+  this->speed_map_[id] = sensor;
+  ESP_LOGD(TAG, "Mapped speed sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::map_limits_sensor(const std::string &id, text_sensor::TextSensor *sensor) {
+  this->limits_map_[id] = sensor;
+  ESP_LOGD(TAG, "Mapped limits sensor for id='%s'", id.c_str());
+}
+
+void ARCBridgeComponent::set_pairing_status_sensor(text_sensor::TextSensor *sensor) {
+  this->pairing_status_sensor_ = sensor;
+  ESP_LOGD(TAG, "Mapped bridge pairing status sensor");
+}
+
+void ARCBridgeComponent::set_last_paired_id_sensor(text_sensor::TextSensor *sensor) {
+  this->last_paired_id_sensor_ = sensor;
+  ESP_LOGD(TAG, "Mapped bridge last paired id sensor");
+}
+
 }  // namespace arc_bridge
 }  // namespace esphome
