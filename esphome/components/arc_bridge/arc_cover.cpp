@@ -55,8 +55,6 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::set_available(bool available) {
   if (!available) {
-    // Mark the entity unavailable using the component status flag
-    this->status_set_warning();
     this->current_operation = cover::COVER_OPERATION_IDLE;
     this->position = NAN;
     this->set_has_state(false);
