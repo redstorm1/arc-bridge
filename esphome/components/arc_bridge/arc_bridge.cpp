@@ -153,6 +153,12 @@ void ARCBridgeComponent::process_tx_queue_() {
   }
 
   const TxQueueItem item = this->tx_queue_.front();
+  if (this->tx_item_blocked_by_pending_delivery_(item)) {
+    ESP_LOGVV(TAG, "[%s] TX deferred while awaiting another blind acknowledgement",
+              item.blind_id.c_str());
+    return;
+  }
+
   // Enforce safe ARC timing using the configured per-bridge motion gap
   const uint32_t required_gap = tx_gap_ms_for(item.pacing_class, this->motion_tx_gap_ms_);
   if (now - this->last_tx_millis_ < required_gap) {
@@ -402,6 +408,17 @@ void ARCBridgeComponent::acknowledge_pending_delivery_(const ParsedFrame &parsed
   this->pending_command_deliveries_.erase(it);
 }
 
+bool ARCBridgeComponent::tx_item_blocked_by_pending_delivery_(const TxQueueItem &item) const {
+  for (const auto &entry : this->pending_command_deliveries_) {
+    const TxQueueItem &pending_item = entry.second.item;
+    if (!tx_item_can_send_while_delivery_pending(item, pending_item.blind_id,
+                                                 pending_item.tracking_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ARCBridgeComponent::send_verification_query_(const std::string &id) {
   const std::string frame = "!" + id + "r?;";
   this->queue_tx_front(frame, TxPacingClass::STANDARD, false);
@@ -497,14 +514,14 @@ void ARCBridgeComponent::send_simple_(const std::string &id, char command,
 void ARCBridgeComponent::send_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "", true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'o', "", false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, true, "o");
 }
 
 void ARCBridgeComponent::send_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "", true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'c', "", false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, true, "c");
 }
 
@@ -526,7 +543,7 @@ void ARCBridgeComponent::send_move(const std::string &id, uint8_t percent) {
   char buffer[4];
   snprintf(buffer, sizeof(buffer), "%03u", percent);
   const std::string move_token = std::string("m") + buffer;
-  this->send_simple_(id, 'm', buffer, true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'm', buffer, false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, true, move_token, "m");
 }
 
@@ -582,21 +599,21 @@ void ARCBridgeComponent::send_raw_command(const std::string &cmd) {
 void ARCBridgeComponent::send_favorite(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'f', "", true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'f', "", false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, false, "f");
 }
 
 void ARCBridgeComponent::send_jog_open(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'o', "A", true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'o', "A", false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, false, "oA");
 }
 
 void ARCBridgeComponent::send_jog_close(const std::string &id) {
   this->last_motion_millis_ = millis();
   this->drop_pending_polls_();
-  this->send_simple_(id, 'c', "A", true, TxPacingClass::MOTION, false,
+  this->send_simple_(id, 'c', "A", false, TxPacingClass::MOTION, false,
                      DeliveryExpectation::BLIND_REPLY, false, "cA");
 }
 

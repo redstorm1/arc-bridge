@@ -45,12 +45,12 @@ DeliveryTimeoutAction next_delivery_timeout_action(const PendingDeliveryPolicy &
     return DeliveryTimeoutAction::NONE;
   }
 
-  if (!policy.verification_sent) {
-    return DeliveryTimeoutAction::SEND_VERIFY_QUERY;
-  }
-
   if (policy.allow_retry && policy.retries_used < policy.retry_limit) {
     return DeliveryTimeoutAction::RETRY_COMMAND;
+  }
+
+  if (!policy.verification_sent) {
+    return DeliveryTimeoutAction::SEND_VERIFY_QUERY;
   }
 
   return DeliveryTimeoutAction::GIVE_UP;

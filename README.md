@@ -64,9 +64,9 @@ The bridge rotates through known blinds and queries them one at a time for posit
 |--------:|-------------|---------|
 | `auto_poll` | Enables background polling | `true` |
 | `auto_poll_interval` | Time between each blind query | `10s` |
-| `motion_tx_gap` | Internal spacing for motion commands | `200ms` |
+| `motion_tx_gap` | Minimum spacing between motion command transmissions | `200ms` |
 | `command_retries` | Retries safe motion commands after a missed reply | `1` |
-| `command_retry_timeout` | Wait time before verification and retry | `1500ms` |
+| `command_retry_timeout` | Wait time before retry/verification handling | `1500ms` |
 
 Setting `auto_poll_interval: 0s` disables polling completely.
 
@@ -111,7 +111,7 @@ cover:
     members: [usz, khn, hw4, j8u]
 ```
 
-`members:` takes existing `arc_bridge` cover IDs. Grouped moves are still sent one blind at a time, just with the faster motion gap.
+`members:` takes existing `arc_bridge` cover IDs. Grouped moves are queued in order; the bridge waits for each tracked motion command to reply, retry, or time out before sending the next tracked motion command.
 
 ## Optional Sensors
 

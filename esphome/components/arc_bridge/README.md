@@ -393,10 +393,10 @@ Use `device_class: shade` for roller / roman / zebra / cellular-style blinds and
 ## Notes
 
 - `auto_poll_interval` is per blind. The bridge rotates through known blinds instead of polling all blinds at once.
-- `motion_tx_gap` applies to motion commands such as open, close, stop, move, favorite, and jog.
-- `command_retries` and `command_retry_timeout` control the verification-and-retry path for safe motion commands.
+- `motion_tx_gap` is the minimum spacing between motion command transmissions.
+- `command_retries` and `command_retry_timeout` control retry/verification handling for safe motion commands.
 - `members:` in `arc_bridge_group` takes existing `arc_bridge` cover IDs.
-- Grouped motion is still serialized one blind at a time.
+- Grouped motion is queued in order; the bridge waits for each tracked motion command to reply, retry, or time out before sending the next tracked motion command.
 
 ## Optional Sensor Values
 

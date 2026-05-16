@@ -8,6 +8,7 @@
 using esphome::arc_bridge::TxPacingClass;
 using esphome::arc_bridge::TxQueueItem;
 using esphome::arc_bridge::drop_pending_poll_items;
+using esphome::arc_bridge::tx_item_can_send_while_delivery_pending;
 using esphome::arc_bridge::tx_gap_ms_for;
 
 namespace {
@@ -67,12 +68,36 @@ void test_priority_motion_sits_ahead_of_polls() {
           "dropping pending polls should preserve the priority motion frame");
 }
 
+void test_delivery_gating_allows_only_matching_retry_or_untracked_frames() {
+  TxQueueItem other_motion{"!USZo;", TxPacingClass::MOTION, false, "USZ",
+                           esphome::arc_bridge::DeliveryExpectation::BLIND_REPLY,
+                           true, 2, "o", ""};
+  require(!tx_item_can_send_while_delivery_pending(other_motion, "QJ0", 1),
+          "new motion for another blind should wait while delivery is pending");
+
+  TxQueueItem matching_retry{"!QJ0o;", TxPacingClass::MOTION, false, "QJ0",
+                             esphome::arc_bridge::DeliveryExpectation::BLIND_REPLY,
+                             true, 1, "o", ""};
+  require(tx_item_can_send_while_delivery_pending(matching_retry, "QJ0", 1),
+          "matching retry should be allowed through pending-delivery gating");
+
+  TxQueueItem verification_query{"!QJ0r?;", TxPacingClass::STANDARD, false, "",
+                                 esphome::arc_bridge::DeliveryExpectation::NONE,
+                                 false, 0, "", ""};
+  require(tx_item_can_send_while_delivery_pending(verification_query, "QJ0", 1),
+          "untracked verification query should be allowed while delivery is pending");
+
+  require(tx_item_can_send_while_delivery_pending(other_motion, "", 0),
+          "delivery gating should not block when no delivery is pending");
+}
+
 }  // namespace
 
 int main() {
   test_gap_mapping();
   test_drop_pending_polls_removes_only_poll_items();
   test_priority_motion_sits_ahead_of_polls();
+  test_delivery_gating_allows_only_matching_retry_or_untracked_frames();
   std::cout << "tx queue tests passed" << std::endl;
   return 0;
 }
