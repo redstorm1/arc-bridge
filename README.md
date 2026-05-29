@@ -64,9 +64,9 @@ The bridge rotates through known blinds and queries them one at a time for posit
 |--------:|-------------|---------|
 | `auto_poll` | Enables background polling | `true` |
 | `auto_poll_interval` | Time between each blind query | `10s` |
-| `motion_tx_gap` | Internal spacing for motion commands | `200ms` |
+| `motion_tx_gap` | Minimum spacing between motion command transmissions | `200ms` |
 | `command_retries` | Retries safe motion commands after a missed reply | `1` |
-| `command_retry_timeout` | Wait time before verification and retry | `1500ms` |
+| `command_retry_timeout` | Wait time before retry/verification handling | `1500ms` |
 
 Setting `auto_poll_interval: 0s` disables polling completely.
 
@@ -111,7 +111,7 @@ cover:
     members: [usz, khn, hw4, j8u]
 ```
 
-`members:` takes existing `arc_bridge` cover IDs. Grouped moves are still sent one blind at a time, just with the faster motion gap.
+`members:` takes existing `arc_bridge` cover IDs. Grouped moves are queued in order; the bridge waits for each tracked motion command to reply, retry, or time out before sending the next tracked motion command.
 
 ## Optional Sensors
 
@@ -122,15 +122,7 @@ sensor:
     name: "Office Blind Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
-
-  - platform: template
-    id: voltage_usz
-    name: "Office Blind Voltage"
-    entity_category: diagnostic
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    icon: "mdi:battery"
+    device_class: signal_strength
 
   - platform: template
     id: battery_usz
@@ -151,7 +143,7 @@ sensor:
     name: "Living Drape Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
 
 text_sensor:
   - platform: template
@@ -194,6 +186,8 @@ These are updated from ARC messages:
 - `limits`: `Unset`, `Upper/Lower Set`, `Upper/Lower/Preferred Set`
 - `voltage` / `power`: `0.00 V` indicates an AC or mains-powered motor
 - `battery_level`: derived from `pVc` using a fixed 3S Li-ion curve
+
+Use `device_class: signal_strength` for ARC RSSI sensors reported in `dBm`. If you later create a percentage-based signal sensor, do not reuse `device_class: signal_strength`.
 
 ## Manual Actions
 

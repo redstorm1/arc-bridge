@@ -280,43 +280,43 @@ sensor:
     name: "Office Blind Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_zxe
     name: "Guest Blind Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_nom
     name: "Living Drape Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_ovj
     name: "Guest Drape Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_txy
     name: "Living Window Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_mlt
     name: "Living Door Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: lq_wrk
     name: "Workshop Drape Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
-    icon: "mdi:signal"
+    device_class: signal_strength
   - platform: template
     id: power_usz
     name: "Office Blind Voltage"
@@ -393,10 +393,10 @@ Use `device_class: shade` for roller / roman / zebra / cellular-style blinds and
 ## Notes
 
 - `auto_poll_interval` is per blind. The bridge rotates through known blinds instead of polling all blinds at once.
-- `motion_tx_gap` applies to motion commands such as open, close, stop, move, favorite, and jog.
-- `command_retries` and `command_retry_timeout` control the verification-and-retry path for safe motion commands.
+- `motion_tx_gap` is the minimum spacing between motion command transmissions.
+- `command_retries` and `command_retry_timeout` control retry/verification handling for safe motion commands.
 - `members:` in `arc_bridge_group` takes existing `arc_bridge` cover IDs.
-- Grouped motion is still serialized one blind at a time.
+- Grouped motion is queued in order; the bridge waits for each tracked motion command to reply, retry, or time out before sending the next tracked motion command.
 
 ## Optional Sensor Values
 
@@ -409,6 +409,8 @@ The optional sensors above are updated from ARC replies:
 - `limits`: `Unset`, `Upper/Lower Set`, `Upper/Lower/Preferred Set`
 - `power` / `voltage`: `0.00 V` means AC or mains-powered
 - `battery_level`: derived 3S Li-ion estimate from `pVc`
+
+Use `device_class: signal_strength` for ARC RSSI sensors reported in `dBm`. If you later expose signal quality as a percentage sensor, do not reuse `device_class: signal_strength`.
 
 There are no built-in discovery, refresh, or pairing ESPHome services in this repo. Use the bridge methods above instead.
 

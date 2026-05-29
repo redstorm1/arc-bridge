@@ -104,6 +104,7 @@ sensor:
     name: "Office Blind Link Quality"
     entity_category: diagnostic
     unit_of_measurement: "dBm"
+    device_class: signal_strength
   - platform: template
     id: speed_usz
     name: "Office Blind Speed"

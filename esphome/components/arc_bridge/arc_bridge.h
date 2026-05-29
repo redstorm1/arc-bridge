@@ -88,6 +88,7 @@ class ARCBridgeComponent : public Component, public uart::UARTDevice {
   void arm_pending_delivery_(const TxQueueItem &item, uint32_t now);
   void acknowledge_pending_delivery_(const ParsedFrame &parsed);
   void process_pending_deliveries_();
+  bool tx_item_blocked_by_pending_delivery_(const TxQueueItem &item) const;
   void send_verification_query_(const std::string &id);
   void publish_pairing_status_(const std::string &status);
   void publish_last_paired_id_(const std::string &id);

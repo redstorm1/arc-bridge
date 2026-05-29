@@ -32,6 +32,9 @@ struct TxQueueItem {
 uint32_t tx_gap_ms_for(TxPacingClass pacing_class,
                        uint32_t motion_tx_gap_ms = DEFAULT_MOTION_TX_GAP_MS);
 void drop_pending_poll_items(std::deque<TxQueueItem> &queue);
+bool tx_item_can_send_while_delivery_pending(const TxQueueItem &item,
+                                             const std::string &pending_blind_id,
+                                             uint32_t pending_tracking_id);
 
 }  // namespace arc_bridge
 }  // namespace esphome

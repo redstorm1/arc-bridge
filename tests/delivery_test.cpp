@@ -130,15 +130,15 @@ void test_timeout_action_progression() {
 
   require(next_delivery_timeout_action(policy, 1200) == DeliveryTimeoutAction::NONE,
           "timeouts should stay idle before the configured threshold");
-  require(next_delivery_timeout_action(policy, 1700) == DeliveryTimeoutAction::SEND_VERIFY_QUERY,
-          "first timeout should trigger a verification query");
-
-  policy.verification_sent = true;
-  policy.last_activity_ms = 1700;
-  require(next_delivery_timeout_action(policy, 3300) == DeliveryTimeoutAction::RETRY_COMMAND,
-          "second timeout should retry when retries remain");
+  require(next_delivery_timeout_action(policy, 1700) == DeliveryTimeoutAction::RETRY_COMMAND,
+          "first timeout should retry retryable motion commands before verification");
 
   policy.retries_used = 1;
+  policy.last_activity_ms = 1700;
+  require(next_delivery_timeout_action(policy, 3300) == DeliveryTimeoutAction::SEND_VERIFY_QUERY,
+          "retry exhaustion should trigger a verification query");
+
+  policy.verification_sent = true;
   policy.last_activity_ms = 3300;
   require(next_delivery_timeout_action(policy, 4900) == DeliveryTimeoutAction::GIVE_UP,
           "timeouts should give up after the retry limit is reached");
