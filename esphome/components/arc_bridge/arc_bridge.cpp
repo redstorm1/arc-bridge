@@ -111,7 +111,7 @@ void ARCBridgeComponent::queue_tx(const std::string &frame,
                                   const std::string &expected_ack_prefix) {
   this->tx_queue_.push_back({frame, pacing_class, is_poll, blind_id, delivery_expectation,
                              allow_retry, tracking_id, expected_ack_token, expected_ack_prefix});
-  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%u ms)", frame.c_str(),
+  ESP_LOGD(TAG, "Enqueued TX: %s (queue size=%u, gap=%" PRIu32 " ms)", frame.c_str(),
            (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
@@ -126,7 +126,7 @@ void ARCBridgeComponent::queue_tx_front(const std::string &frame,
                                         const std::string &expected_ack_prefix) {
   this->tx_queue_.push_front({frame, pacing_class, is_poll, blind_id, delivery_expectation,
                               allow_retry, tracking_id, expected_ack_token, expected_ack_prefix});
-  ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%u ms)", frame.c_str(),
+  ESP_LOGD(TAG, "Enqueued TX (priority): %s (queue size=%u, gap=%" PRIu32 " ms)", frame.c_str(),
            (unsigned) this->tx_queue_.size(), tx_gap_ms_for(pacing_class, this->motion_tx_gap_ms_));
 }
 
@@ -171,7 +171,7 @@ void ARCBridgeComponent::process_tx_queue_() {
   this->last_tx_millis_ = now;
   this->arm_pending_delivery_(item, now);
 
-  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%u ms)", item.frame.c_str(), required_gap);
+  ESP_LOGD(TAG, "TX -> %s (queued send, gap=%" PRIu32 " ms)", item.frame.c_str(), required_gap);
 }
 
 // =========================================================
@@ -195,7 +195,9 @@ void ARCBridgeComponent::setup() {
   this->query_index_ = 0;
 
   ESP_LOGI(TAG,
-           "ARCBridge setup (startup guard %u ms, auto-poll %s, interval %u ms, tx gaps default=%u ms motion=%u ms, command retries=%u timeout=%u ms)",
+           "ARCBridge setup (startup guard %" PRIu32 " ms, auto-poll %s, interval %" PRIu32
+           " ms, tx gaps default=%" PRIu32 " ms motion=%" PRIu32
+           " ms, command retries=%u timeout=%" PRIu32 " ms)",
            STARTUP_GUARD_MS,
            (this->auto_poll_enabled_ && this->query_interval_ms_ > 0) ? "enabled" : "disabled",
            this->query_interval_ms_,
@@ -312,7 +314,8 @@ void ARCBridgeComponent::loop() {
   if (static_cast<uint32_t>(dt_rx) >= TX_WATCHDOG_MS &&
       static_cast<uint32_t>(dt_tx) >= TX_WATCHDOG_MS) {
     ESP_LOGW(TAG,
-             "TX watchdog: no RX for %u ms (last TX %u ms ago) while TX pending -> clearing queue",
+             "TX watchdog: no RX for %" PRIu32 " ms (last TX %" PRIu32
+             " ms ago) while TX pending -> clearing queue",
              (uint32_t) dt_rx, (uint32_t) dt_tx);
 
     this->tx_queue_.clear();
@@ -380,7 +383,8 @@ void ARCBridgeComponent::arm_pending_delivery_(const TxQueueItem &item, uint32_t
   pending.last_activity_ms = now;
   pending.verification_sent = false;
 
-  ESP_LOGD(TAG, "[%s] Awaiting blind acknowledgement for %s (tracking=%u, retries used=%u)",
+  ESP_LOGD(TAG, "[%s] Awaiting blind acknowledgement for %s (tracking=%" PRIu32
+                ", retries used=%u)",
            item.blind_id.c_str(), item.frame.c_str(), item.tracking_id, pending.retries_used);
 }
 
@@ -445,7 +449,8 @@ void ARCBridgeComponent::process_pending_deliveries_() {
 
     switch (next_delivery_timeout_action(policy, now)) {
       case DeliveryTimeoutAction::SEND_VERIFY_QUERY:
-        ESP_LOGW(TAG, "[%s] No qualifying blind reply for %s after %u ms -> verifying with r?",
+        ESP_LOGW(TAG, "[%s] No qualifying blind reply for %s after %" PRIu32
+                      " ms -> verifying with r?",
                  pending.item.blind_id.c_str(), pending.item.frame.c_str(),
                  this->command_retry_timeout_ms_);
         this->send_verification_query_(pending.item.blind_id);
@@ -818,7 +823,7 @@ void ARCBridgeComponent::handle_pairing_outcome_(const PairingOutcome &outcome) 
 
     case PairingOutcomeType::TIMEOUT:
       this->publish_pairing_status_(outcome.message);
-      ESP_LOGW(TAG, "Pairing timed out after %u ms", PAIRING_TIMEOUT_MS);
+      ESP_LOGW(TAG, "Pairing timed out after %" PRIu32 " ms", PAIRING_TIMEOUT_MS);
       break;
 
     case PairingOutcomeType::GENERIC_ACK:
