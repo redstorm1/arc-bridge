@@ -9,6 +9,8 @@ from pathlib import Path
 COMMON_CONFIG = """
 esphome:
   name: {name}
+  build_flags:
+    - -Werror=format
 
 esp32:
   board: esp32dev
