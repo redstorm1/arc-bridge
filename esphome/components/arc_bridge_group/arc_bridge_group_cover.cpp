@@ -78,11 +78,13 @@ void ARCBridgeGroupCover::recompute_state_() {
   }
 
   if (positioned_members == 0) {
+    const bool had_state = this->has_state() && std::isfinite(this->position);
     this->status_set_warning();
     this->current_operation = cover::COVER_OPERATION_IDLE;
-    this->position = NAN;
     this->set_has_state(false);
-    this->publish_state();
+    if (had_state) {
+      this->publish_state(false);
+    }
     return;
   }
 

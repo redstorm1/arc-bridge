@@ -55,18 +55,17 @@ void ARCCover::publish_raw_position(int device_pos) {
 
 void ARCCover::set_available(bool available) {
   if (!available) {
+    const bool had_state = this->has_state() && std::isfinite(this->position);
     this->current_operation = cover::COVER_OPERATION_IDLE;
-    this->position = NAN;
     this->set_has_state(false);
-    this->publish_state();
+    if (had_state) {
+      this->publish_state(false);
+    }
     ESP_LOGW(TAG, "[%s] marked unavailable", this->blind_id_.c_str());
   } else {
     this->status_clear_warning();
     if (this->last_known_pos_ >= 0) {
       this->publish_raw_position(this->last_known_pos_);
-    } else {
-      this->set_has_state(true);
-      this->publish_state();
     }
     ESP_LOGD(TAG, "[%s] marked available", this->blind_id_.c_str());
   }
